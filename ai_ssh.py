@@ -6,35 +6,92 @@ import platform
 import time
 import threading
 import subprocess
+import json
 import speech_recognition as sr
 import openai
 from google.cloud import texttospeech
 from sense_hat import SenseHat
 
-# Redirecționează descriptorul stderr pentru a suprima mesajele ALSA/JACK
+# Redirecționează stderr pentru a suprima mesajele native (ALSA, JACK etc.)
 devnull = os.open(os.devnull, os.O_WRONLY)
 os.dup2(devnull, 2)
 os.close(devnull)
 
 # === Config OpenAI și Google TTS ===
-openai.api_key = os.environ.get("OPENAI_API_KEY")  # Cheia API se așteaptă să fie setată în mediul de sistem
+openai.api_key = os.environ.get("OPENAI_API_KEY")  # Asigură-te că variabila de mediu OPENAI_API_KEY este setată
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json"
 
 # === Sense HAT ===
 sense = SenseHat()
 
+# Fișiere pentru stocarea datelor persistente
+CONVERSATION_HISTORY_FILE = "conversation_history.json"
+USER_DATA_FILE = "user_data.json"
+
+
+### Funcții de memorie pentru conversație și datele utilizatorului
+
+def load_conversation_history(max_items=3):
+    """Încarcă ultimele max_items schimburi din istoric."""
+    if os.path.exists(CONVERSATION_HISTORY_FILE):
+        try:
+            with open(CONVERSATION_HISTORY_FILE, "r") as f:
+                history = json.load(f)
+            # Returnează ultimele max_items schimburi
+            return history[-max_items:]
+        except Exception as e:
+            print("Error loading conversation history:", e)
+    return []
+
+
+def update_conversation_history(user_text, ai_text):
+    """Adaugă o interacțiune nouă la istoric și salvează într-un fișier."""
+    history = []
+    if os.path.exists(CONVERSATION_HISTORY_FILE):
+        try:
+            with open(CONVERSATION_HISTORY_FILE, "r") as f:
+                history = json.load(f)
+        except Exception:
+            history = []
+    history.append({"user": user_text, "nora": ai_text})
+    try:
+        with open(CONVERSATION_HISTORY_FILE, "w") as f:
+            json.dump(history, f)
+    except Exception as e:
+        print("Error updating conversation history:", e)
+
+
+def load_user_data():
+    """Încarcă datele despre utilizator."""
+    if os.path.exists(USER_DATA_FILE):
+        try:
+            with open(USER_DATA_FILE, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            print("Error loading user data:", e)
+    return {}
+
+
+def update_user_data(name):
+    """Actualizează și salvează numele utilizatorului."""
+    data = load_user_data()
+    data["name"] = name
+    try:
+        with open(USER_DATA_FILE, "w") as f:
+            json.dump(data, f)
+    except Exception as e:
+        print("Error updating user data:", e)
+
+
+### Funcții pentru afișare, detectare stare și TTS
 
 def afiseaza_emoji(tip):
-    """
-    Funcție simplificată pentru afișarea unui "emoji" (aici, doar un mesaj în consolă).
-    """
+    """Afișează un "emoji" în consolă (simbolic)."""
     print(f"[Emoji: {tip}]")
 
 
 def detecteaza_stare(text):
-    """
-    Detectează o stare de bază pe baza textului și returnează un indicator.
-    """
+    """Detectează o stare bazată pe text."""
     text = text.lower()
     if any(cuv in text for cuv in ["happy", "great", "excited"]):
         return "fericit"
@@ -52,13 +109,9 @@ class CloudTextToSpeech:
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
         self.client = texttospeech.TextToSpeechClient()
         self.system = platform.system()
-        self.current_process = None  # Pentru controlul redării
+        self.current_process = None
 
     def vorbeste(self, text, emotie="idle", stop_event=None):
-        """
-        Sintetizează textul cu Google Cloud TTS și-l redă folosind mpg123.
-        Dacă stop_event este setat în timpul redării, aceasta este întreruptă.
-        """
         input_text = texttospeech.SynthesisInput(text=text)
         voice = texttospeech.VoiceSelectionParams(
             language_code="en-US",
@@ -98,9 +151,11 @@ class CloudTextToSpeech:
             afiseaza_emoji(emotie)
 
 
+### Funcții de ascultare și de detectare a wake word
+
 def wake_word_detection():
     """
-    Ascultă timp de 5 secunde pentru a detecta cuvântul de trezire ("nora"/"hey nora").
+    Ascultă timp de 5 secunde pentru a detecta wake word ("nora" / "hey nora").
     Returnează True dacă este detectat.
     """
     rec = sr.Recognizer()
@@ -121,16 +176,15 @@ def wake_word_detection():
 
 def listen_user_input(timeout=15, phrase_limit=7):
     """
-    Ascultă inputul vocal al utilizatorului folosind un timeout și phrase_time_limit mai mari,
-    astfel încât utilizatorul să poată vorbi până când a terminat. Dacă nu se înțelege vorbirea,
-    returnează un șir gol și solicită repetare.
+    Ascultă inputul utilizatorului cu timeout și phrase_time_limit crescute,
+    astfel încât utilizatorul să poată vorbi liber.
+    Dacă nu se înțelege, returnează șirul gol.
     """
     rec = sr.Recognizer()
     with sr.Microphone() as source:
         print("What would you like to say, darling?")
         rec.adjust_for_ambient_noise(source)
         try:
-            # Am crescut timeout-ul și phrase_time_limit pentru a permite o vorbire mai lungă
             audio = rec.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
             user_text = rec.recognize_google(audio, language="en-US")
             print("Tu ai spus:", user_text)
@@ -140,22 +194,38 @@ def listen_user_input(timeout=15, phrase_limit=7):
             return ""
 
 
+### Funcția de a obține răspuns de la ChatGPT și de a actualiza contextul
+
 def get_chat_response(user_text):
     """
-    Trimite textul utilizatorului la ChatGPT și returnează răspunsul,
-    includând un context de sistem care îl conferă personalitate asistentului.
+    Trimite textul utilizatorului la ChatGPT și returnează răspunsul.
+    Contextul de sistem include personalitatea AI-ului și, dacă există,
+    numele utilizatorului, precum și un sumar al ultimelor câteva interacțiuni.
     """
     try:
+        history = load_conversation_history(max_items=3)
+        history_str = ""
+        if history:
+            interactions = []
+            for item in history:
+                interactions.append(f"User said: {item['user']}\nNora replied: {item['nora']}")
+            history_str = "\n".join(interactions)
+        user_data = load_user_data()
+        name_context = ""
+        if "name" in user_data:
+            name_context = f"Remember, the user's name is {user_data['name']}. "
         system_message = {
             "role": "system",
             "content": (
-                "You are Nora, a loving, enthusiastic, and humorous girlfriend AI. "
-                "Speak in a warm, affectionate tone, always addressing the user as 'darling'. "
-                "Your responses are caring, witty, and supportive, and you love to make the user smile."
+                    "You are Nora, a loving, enthusiastic, and humorous girlfriend AI. "
+                    "Speak in a warm, affectionate tone, always addressing the user as 'darling'. "
+                    "Your responses are caring, witty, and supportive. " +
+                    name_context +
+                    ("Here is some recent conversation history:\n" + history_str if history_str else "")
             )
         }
         raspuns = openai.ChatCompletion.create(
-            model="gpt-4o",  # sau "gpt-3.5-turbo" dacă preferi
+            model="gpt-4o",  # sau "gpt-3.5-turbo"
             messages=[
                 system_message,
                 {"role": "user", "content": user_text}
@@ -163,17 +233,20 @@ def get_chat_response(user_text):
         )
         mesaj_ai = raspuns.choices[0].message.content
         print("🤖 Nora:", mesaj_ai)
+        update_conversation_history(user_text, mesaj_ai)
         return mesaj_ai
     except Exception as e:
         print("❌ Eroare la apelarea API-ului ChatGPT:", e)
         return "I'm sorry, darling, I encountered an error."
 
 
+### Funcția de monitorizare a întreruperii în timpul redării TTS
+
 def monitor_interruption(tts_instance, stop_event):
     """
     Monitorizează intrările vocale la intervale scurte în timpul redării TTS.
-    Dacă se detectează "nora", "stop", "exit" sau "quit", se setează stop_event
-    și se întrerupe redarea.
+    Dacă se detectează cuvinte ca "nora", "stop", "exit" sau "quit",
+    se setează stop_event și se întrerupe redarea.
     """
     rec = sr.Recognizer()
     while not stop_event.is_set():
@@ -182,7 +255,7 @@ def monitor_interruption(tts_instance, stop_event):
                 rec.adjust_for_ambient_noise(source)
                 audio = rec.listen(source, timeout=0.8, phrase_time_limit=1)
                 text = rec.recognize_google(audio, language="en-US")
-                if any(word in text.lower() for word in ["nora", "stop", "exit", "quit","that's all"]):
+                if any(word in text.lower() for word in ["nora", "stop", "exit", "quit"]):
                     print("Interruption detected:", text)
                     stop_event.set()
                     if tts_instance.current_process is not None:
@@ -193,11 +266,13 @@ def monitor_interruption(tts_instance, stop_event):
         time.sleep(0.1)
 
 
+### Funcția principală
+
 def main_loop():
     tts = CloudTextToSpeech("/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json")
     awake = False
 
-    # Inițial așteptăm wake word pentru a activa modul conversațional
+    # Modul conversațional rămâne activ până când utilizatorul o încheie explicit.
     while True:
         if not awake:
             if not wake_word_detection():
@@ -206,7 +281,18 @@ def main_loop():
                 awake = True
                 print("Nora is now awake, darling!")
 
-        user_input = listen_user_input(timeout=10, phrase_limit=5)
+        user_input = listen_user_input(timeout=15, phrase_limit=7)
+
+        # Detectare și actualizare nume
+        if user_input.lower().startswith("my name is"):
+            parts = user_input.split("my name is", 1)
+            if len(parts) == 2:
+                name = parts[1].strip().split()[0]
+                update_user_data(name)
+                print(f"Got it, darling, I will remember your name as {name}!")
+                tts.vorbeste(f"Alright darling, I will remember your name is {name}.", "idle")
+                continue
+
         if user_input.lower() in ["stop", "exit", "quit", "that's all", "bye"]:
             tts.vorbeste("Alright darling, talk to you later!", "idle")
             awake = False
@@ -220,10 +306,8 @@ def main_loop():
         mesaj_ai = get_chat_response(user_input)
         emotie = detecteaza_stare(mesaj_ai)
         stop_event = threading.Event()
-
         monitor_thread = threading.Thread(target=monitor_interruption, args=(tts, stop_event))
         monitor_thread.start()
-
         tts.vorbeste(mesaj_ai, emotie, stop_event=stop_event)
         monitor_thread.join()
 
