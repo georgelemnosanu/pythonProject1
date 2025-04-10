@@ -13,9 +13,9 @@ from google.cloud import texttospeech
 from sense_hat import SenseHat
 
 # Redirecționează stderr pentru a suprima mesajele native (ALSA/JACK)
-# devnull = os.open(os.devnull, os.O_WRONLY)
-# os.dup2(devnull, 2)
-# os.close(devnull)
+devnull = os.open(os.devnull, os.O_WRONLY)
+os.dup2(devnull, 2)
+os.close(devnull)
 
 # === Config OpenAI și Google TTS ===
 openai.api_key = os.environ.get("OPENAI_API_KEY")  # Cheia API se așteaptă să fie setată în mediul de sistem
