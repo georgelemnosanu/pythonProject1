@@ -469,7 +469,7 @@ def main_loop():
                 tts.vorbeste(f"Alright, darling, I'll remember your name is {name}.", "idle")
                 continue
 
-        if user_input.lower() in ["stop", "exit", "quit", "that's all", "bye"]:
+        if user_input.lower() in ["stop", "exit", "quit", "that's all", "bye","that's all thank you","that's all"]:
             tts.vorbeste("Alright, darling, talk to you later!", "idle")
             awake = False
             print("Returning to sleep mode...")
