@@ -14,13 +14,17 @@ import openai
 from google.cloud import texttospeech
 from sense_hat import SenseHat
 
-# Redirecționează stderr (pentru a suprima mesajele native ALSA/JACK)
+# Global lock și flag pentru microfon
+microphone_lock = threading.Lock()
+microphone_busy = False
+
+# Redirecționează stderr pentru a suprima mesajele native (ALSA/JACK)
 devnull = os.open(os.devnull, os.O_WRONLY)
 os.dup2(devnull, 2)
 os.close(devnull)
 
 # === Config OpenAI și Google TTS ===
-openai.api_key = os.environ.get("OPENAI_API_KEY")  # Asigură-te că variabila de mediu OPENAI_API_KEY este setată
+openai.api_key = os.environ.get("OPENAI_API_KEY")
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json"
 
 # === Sense HAT ===
@@ -32,9 +36,9 @@ USER_DATA_FILE = "user_data.json"
 KNOWN_FACE_FILE = "known_face.jpg"
 
 
-#########################################
+#############################################
 # Funcții pentru memorie (conversație & user data)
-#########################################
+#############################################
 
 def load_conversation_history(max_items=3):
     if os.path.exists(CONVERSATION_HISTORY_FILE):
@@ -83,12 +87,11 @@ def update_user_data(name):
         print("Error updating user data:", e)
 
 
-#########################################
-# Funcții pentru afișarea "emoji"-urilor & detectarea stării
-#########################################
+#############################################
+# Funcții pentru afișare "emoji" & detectare stare
+#############################################
 
 def afiseaza_emoji(tip):
-    # Pentru debug simbolic
     print(f"[Emoji: {tip}]")
 
 
@@ -105,9 +108,9 @@ def detecteaza_stare(text):
     return "idle"
 
 
-#########################################
-# Funcții pentru webcam: detecție și comparație fețe
-#########################################
+#############################################
+# Funcții pentru Webcam
+#############################################
 
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
@@ -132,32 +135,36 @@ def compare_faces(known_face, new_face, threshold=10000):
         return False
 
 
-#########################################
-# Funcția auxiliară pentru a cere identitatea noii fețe
-#########################################
+#############################################
+# Funcția auxiliară pentru identificarea noii fețe
+#############################################
 
 def ask_for_new_face(tts_instance):
-    # Oprește temporar orice altă înregistrare
-    tts_instance.vorbeste("I see someone new! Who are you?", "confuz")
-    # Așteaptă puțin pentru a permite TTS-ului să se termine (de exemplu, 1 secundă)
-    time.sleep(1)
-    rec = sr.Recognizer()
-    with sr.Microphone() as source:
-        rec.adjust_for_ambient_noise(source)
-        print("Listening for new face identification...")
+    global microphone_busy
+    # Setăm flag-ul ca microfon ocupat pentru identificare
+    microphone_busy = True
+    with microphone_lock:
+        tts_instance.vorbeste("I see someone new! Who are you?", "confuz")
+        time.sleep(1)  # Așteaptă ca TTS-ul să se termine
+        rec = sr.Recognizer()
         try:
-            audio = rec.listen(source, timeout=10, phrase_time_limit=5)
-            response = rec.recognize_google(audio, language="en-US")
-            print("New face response:", response)
-            return response
+            with sr.Microphone() as source:
+                rec.adjust_for_ambient_noise(source)
+                print("Listening for new face identification...")
+                audio = rec.listen(source, timeout=10, phrase_time_limit=5)
+                response = rec.recognize_google(audio, language="en-US")
+                print("New face response:", response)
+                microphone_busy = False
+                return response
         except Exception as e:
             print("Error in ask_for_new_face:", e)
+            microphone_busy = False
             return None
 
 
-#########################################
+#############################################
 # Funcția de monitorizare a webcam-ului
-#########################################
+#############################################
 
 def monitor_webcam(tts_instance):
     cap = cv2.VideoCapture(0)
@@ -166,7 +173,7 @@ def monitor_webcam(tts_instance):
         known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
     face_detected = False
     last_seen = None
-    threshold = 3  # Prag: 3 secunde de absență pentru a considera că ai dispărut
+    threshold = 3  # secunde de absență necesare
     processing_new_face = False
 
     while True:
@@ -181,12 +188,11 @@ def monitor_webcam(tts_instance):
 
         if face is not None:
             print("Face captured.")
-            last_seen = current_time  # Actualizează timpul de detecție curentă
+            last_seen = current_time  # actualizează timpul de detecție
             if known_face is not None:
                 if compare_faces(known_face, face):
-                    # Fața este recunoscută
                     if not face_detected and last_seen and (current_time - last_seen) >= threshold:
-                        # Dacă fața a dispărut pentru cel puțin 'threshold' secunde și apoi s-a reaparut
+                        # Dacă fața (cunoscută) reapare după absență
                         user_data = load_user_data()
                         name = user_data.get("name", "darling")
                         print("Welcome back, " + name + "!")
@@ -194,8 +200,8 @@ def monitor_webcam(tts_instance):
                     face_detected = True
                     processing_new_face = False
                 else:
-                    # Fața detectată este diferită de cea cunoscută
-                    if not processing_new_face:
+                    # Dacă se detectează o față diferită
+                    if not processing_new_face and not microphone_busy:
                         processing_new_face = True
                         print("I see someone new! Who are you?")
                         response = ask_for_new_face(tts_instance)
@@ -211,10 +217,10 @@ def monitor_webcam(tts_instance):
                         else:
                             print("No valid identification received.")
                         face_detected = False
-                        time.sleep(3)  # Pauză pentru a evita repetiția imediată
+                        time.sleep(3)  # evită repetiția imediată
                         processing_new_face = False
             else:
-                # Nu avem o față cunoscută; dacă există nume în user_data, salvează fața curentă
+                # Dacă nu avem o față cunoscută și user_data conține un nume, salvăm fața
                 user_data = load_user_data()
                 if "name" in user_data:
                     cv2.imwrite(KNOWN_FACE_FILE, face)
@@ -229,9 +235,9 @@ def monitor_webcam(tts_instance):
         time.sleep(1)
 
 
-#########################################
-# Clasa pentru Google Cloud TTS (rămâne similară)
-#########################################
+#############################################
+# Clasa pentru Google Cloud TTS
+#############################################
 
 class CloudTextToSpeech:
     def __init__(self, key_path):
@@ -280,47 +286,49 @@ class CloudTextToSpeech:
             afiseaza_emoji(emotie)
 
 
-#########################################
-# Funcții pentru wake word și ascultarea inputului
-#########################################
+#############################################
+# Funcții de wake word și ascultarea inputului
+#############################################
 
 def wake_word_detection():
-    rec = sr.Recognizer()
-    with sr.Microphone() as source:
-        print("Aștept wake word ('nora' / 'hey nora')...")
-        rec.adjust_for_ambient_noise(source)
-        try:
-            audio = rec.listen(source, timeout=5, phrase_time_limit=3)
-            text = rec.recognize_google(audio, language="en-US")
-            print("Am auzit:", text)
-            if "nora" in text.lower():
-                if text.lower().strip() in ["hey nora", "nora"]:
-                    print("Wake confirmation: Yes, darling!")
-                print("Wake word detectat!")
-                return True
-        except Exception:
-            pass
+    with microphone_lock:
+        rec = sr.Recognizer()
+        with sr.Microphone() as source:
+            print("Aștept wake word ('nora' / 'hey nora')...")
+            rec.adjust_for_ambient_noise(source)
+            try:
+                audio = rec.listen(source, timeout=5, phrase_time_limit=3)
+                text = rec.recognize_google(audio, language="en-US")
+                print("Am auzit:", text)
+                if "nora" in text.lower():
+                    if text.lower().strip() in ["hey nora", "nora"]:
+                        print("Wake confirmation: Yes, darling!")
+                    print("Wake word detectat!")
+                    return True
+            except Exception:
+                pass
     return False
 
 
 def listen_user_input(timeout=15, phrase_limit=7):
-    rec = sr.Recognizer()
-    with sr.Microphone() as source:
-        print("What would you like to say, darling?")
-        rec.adjust_for_ambient_noise(source)
-        try:
-            audio = rec.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
-            user_text = rec.recognize_google(audio, language="en-US")
-            print("Tu ai spus:", user_text)
-            return user_text
-        except Exception as e:
-            print("I'm sorry, darling, can you repeat please?")
-            return ""
+    with microphone_lock:
+        rec = sr.Recognizer()
+        with sr.Microphone() as source:
+            print("What would you like to say, darling?")
+            rec.adjust_for_ambient_noise(source)
+            try:
+                audio = rec.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
+                user_text = rec.recognize_google(audio, language="en-US")
+                print("Tu ai spus:", user_text)
+                return user_text
+            except Exception as e:
+                print("I'm sorry, darling, can you repeat please?")
+                return ""
 
 
-#########################################
+#############################################
 # Funcția pentru a obține răspunsul de la ChatGPT
-#########################################
+#############################################
 
 def get_chat_response(user_text):
     try:
@@ -340,7 +348,7 @@ def get_chat_response(user_text):
             "content": (
                     "You are Nora, a loving, enthusiastic, and humorous girlfriend AI. "
                     "Speak in a warm, affectionate tone, always addressing the user as 'darling'. "
-                    "Your responses should be caring, witty, and supportive, and vary your language to avoid repetition. " +
+                    "Your responses are caring, witty, and supportive, and vary your language to avoid repetition. " +
                     name_context +
                     ("Recent conversation history:\n" + history_str if history_str else "") +
                     "\nKeep your answer brief and concise (no more than three lines) and do not include emojis."
@@ -362,38 +370,39 @@ def get_chat_response(user_text):
         return "I'm sorry, darling, I encountered an error."
 
 
-#########################################
+#############################################
 # Funcția de monitorizare a întreruperii în timpul redării TTS
-#########################################
+#############################################
 
 def monitor_interruption(tts_instance, stop_event):
-    rec = sr.Recognizer()
-    while not stop_event.is_set():
-        try:
-            with sr.Microphone() as source:
-                rec.adjust_for_ambient_noise(source)
-                audio = rec.listen(source, timeout=0.8, phrase_time_limit=1)
-                text = rec.recognize_google(audio, language="en-US")
-                if any(word in text.lower() for word in ["nora", "stop", "exit", "quit"]):
-                    print("Interruption detected:", text)
-                    stop_event.set()
-                    if tts_instance.current_process is not None:
-                        tts_instance.current_process.kill()
-                    break
-        except Exception:
-            pass
-        time.sleep(0.05)
+    with microphone_lock:
+        rec = sr.Recognizer()
+        while not stop_event.is_set():
+            try:
+                with sr.Microphone() as source:
+                    rec.adjust_for_ambient_noise(source)
+                    audio = rec.listen(source, timeout=0.8, phrase_time_limit=1)
+                    text = rec.recognize_google(audio, language="en-US")
+                    if any(word in text.lower() for word in ["nora", "stop", "exit", "quit"]):
+                        print("Interruption detected:", text)
+                        stop_event.set()
+                        if tts_instance.current_process is not None:
+                            tts_instance.current_process.kill()
+                        break
+            except Exception:
+                pass
+            time.sleep(0.05)
 
 
-#########################################
+#############################################
 # Funcția principală
-#########################################
+#############################################
 
 def main_loop():
     tts = CloudTextToSpeech("/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json")
     awake = False
 
-    # Pornim monitorizarea webcam-ului într-un thread daemon
+    # Pornește monitorizarea webcam-ului într-un thread daemon
     webcam_thread = threading.Thread(target=monitor_webcam, args=(tts,), daemon=True)
     webcam_thread.start()
 
