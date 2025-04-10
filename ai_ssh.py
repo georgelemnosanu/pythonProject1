@@ -14,13 +14,13 @@ import openai
 from google.cloud import texttospeech
 from sense_hat import SenseHat
 
-# Redirecționează stderr pentru a suprima mesajele native (ALSA/JACK)
+# Redirecționează stderr (pentru a suprima mesajele native ALSA/JACK)
 devnull = os.open(os.devnull, os.O_WRONLY)
 os.dup2(devnull, 2)
 os.close(devnull)
 
 # === Config OpenAI și Google TTS ===
-openai.api_key = os.environ.get("OPENAI_API_KEY")
+openai.api_key = os.environ.get("OPENAI_API_KEY")  # Asigură-te că variabila de mediu OPENAI_API_KEY este setată
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json"
 
 # === Sense HAT ===
@@ -32,7 +32,9 @@ USER_DATA_FILE = "user_data.json"
 KNOWN_FACE_FILE = "known_face.jpg"
 
 
-### Funcții de memorie pentru conversație și date despre utilizator
+#########################################
+# Funcții pentru memorie (conversație & user data)
+#########################################
 
 def load_conversation_history(max_items=3):
     if os.path.exists(CONVERSATION_HISTORY_FILE):
@@ -81,9 +83,12 @@ def update_user_data(name):
         print("Error updating user data:", e)
 
 
-### Funcții pentru afișarea emoji‑urilor și detectarea stării
+#########################################
+# Funcții pentru afișarea "emoji"-urilor & detectarea stării
+#########################################
 
 def afiseaza_emoji(tip):
+    # Pentru debug simbolic
     print(f"[Emoji: {tip}]")
 
 
@@ -100,7 +105,9 @@ def detecteaza_stare(text):
     return "idle"
 
 
-### Funcții pentru webcam
+#########################################
+# Funcții pentru webcam: detecție și comparație fețe
+#########################################
 
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
@@ -125,46 +132,42 @@ def compare_faces(known_face, new_face, threshold=10000):
         return False
 
 
-# Funcție pentru a cere și rosti glume
-def ask_for_joke(tts_instance):
-    # Folosește TTS pentru a întreba
-    tts_instance.vorbeste("I see you, darling. Do you want to hear a joke?", "idle")
+#########################################
+# Funcția auxiliară pentru a cere identitatea noii fețe
+#########################################
+
+def ask_for_new_face(tts_instance):
+    # Oprește temporar orice altă înregistrare
+    tts_instance.vorbeste("I see someone new! Who are you?", "confuz")
+    # Așteaptă puțin pentru a permite TTS-ului să se termine (de exemplu, 1 secundă)
+    time.sleep(1)
     rec = sr.Recognizer()
     with sr.Microphone() as source:
         rec.adjust_for_ambient_noise(source)
+        print("Listening for new face identification...")
         try:
-            audio = rec.listen(source, timeout=5, phrase_time_limit=3)
-            response = rec.recognize_google(audio, language="en-US").lower()
-            if "yes" in response:
-                jokes = [
-                    "Why did the scarecrow win an award? Because he was outstanding in his field.",
-                    "I'm reading a book on anti-gravity. It's impossible to put down!",
-                    "Why don't scientists trust atoms? Because they make up everything."
-                ]
-                import random
-                joke = random.choice(jokes)
-                tts_instance.vorbeste(joke, "fericit")
-            else:
-                tts_instance.vorbeste("Alright, darling, maybe another time.", "idle")
-        except Exception:
-            tts_instance.vorbeste("I didn't catch that, darling.", "confuz")
+            audio = rec.listen(source, timeout=10, phrase_time_limit=5)
+            response = rec.recognize_google(audio, language="en-US")
+            print("New face response:", response)
+            return response
+        except Exception as e:
+            print("Error in ask_for_new_face:", e)
+            return None
 
 
-# Funcția actualizată pentru monitorizarea webcam‑ului
+#########################################
+# Funcția de monitorizare a webcam-ului
+#########################################
+
 def monitor_webcam(tts_instance):
     cap = cv2.VideoCapture(0)
     known_face = None
-    user_data = load_user_data()
-
-    # Încarcă fața cunoscută, dacă există
     if os.path.exists(KNOWN_FACE_FILE):
         known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
-
-    # Variabile de stare
-    face_present = False  # Indică dacă fața a fost detectată în ciclul anterior
-    greeted = False  # Pentru a nu saluta repetitiv
-    last_seen = None  # Timpul ultimei detectări (în secunde, epoch)
-    threshold = 3  # Pragul: 3 secunde de absență necesare pentru a declanșa salutul
+    face_detected = False
+    last_seen = None
+    threshold = 3  # Prag: 3 secunde de absență pentru a considera că ai dispărut
+    processing_new_face = False
 
     while True:
         ret, frame = cap.read()
@@ -178,54 +181,57 @@ def monitor_webcam(tts_instance):
 
         if face is not None:
             print("Face captured.")
+            last_seen = current_time  # Actualizează timpul de detecție curentă
             if known_face is not None:
                 if compare_faces(known_face, face):
-                    # Fața este recunoscută ca fiind cea cunoscută.
-                    if not face_present:
-                        # Dacă anterior nu era detectată (sau era absentă) și au trecut cel puțin 'threshold' secunde
-                        if last_seen is not None and (current_time - last_seen) >= threshold:
-                            if not greeted:
-                                # Preia numele din user_data; dacă nu există, folosește "darling"
-                                name = user_data.get("name", "darling")
-                                print("Welcome back, " + name + "!")
-                                tts_instance.vorbeste("Welcome back, " + name + "!", "idle")
-                                greeted = True
-                    face_present = True
-                    last_seen = current_time
+                    # Fața este recunoscută
+                    if not face_detected and last_seen and (current_time - last_seen) >= threshold:
+                        # Dacă fața a dispărut pentru cel puțin 'threshold' secunde și apoi s-a reaparut
+                        user_data = load_user_data()
+                        name = user_data.get("name", "darling")
+                        print("Welcome back, " + name + "!")
+                        tts_instance.vorbeste("Welcome back, " + name + "!", "idle")
+                    face_detected = True
+                    processing_new_face = False
                 else:
-                    # Fața detectată nu se potrivește cu cea cunoscută (persoană nouă)
-                    if not face_present:
-                        if last_seen is not None and (current_time - last_seen) >= threshold:
-                            if not greeted:
-                                print("I see someone new! Who are you?")
-                                tts_instance.vorbeste("I see someone new! Who are you?", "confuz")
-                                # Poți adăuga logica pentru actualizarea numelui aici, cu o interacțiune suplimentară.
-                                greeted = True
-                    face_present = False
-                    last_seen = current_time
+                    # Fața detectată este diferită de cea cunoscută
+                    if not processing_new_face:
+                        processing_new_face = True
+                        print("I see someone new! Who are you?")
+                        response = ask_for_new_face(tts_instance)
+                        if response and "my name is" in response.lower():
+                            parts = response.lower().split("my name is", 1)
+                            if len(parts) == 2:
+                                new_name = parts[1].strip().split()[0]
+                                update_user_data(new_name)
+                                cv2.imwrite(KNOWN_FACE_FILE, face)
+                                known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
+                                print("Nice to meet you, " + new_name + "!")
+                                tts_instance.vorbeste("Nice to meet you, " + new_name + "!", "fericit")
+                        else:
+                            print("No valid identification received.")
+                        face_detected = False
+                        time.sleep(3)  # Pauză pentru a evita repetiția imediată
+                        processing_new_face = False
             else:
-                # Dacă nu avem o față cunoscută încă, dar user_data conține nume, salvează fața
+                # Nu avem o față cunoscută; dacă există nume în user_data, salvează fața curentă
+                user_data = load_user_data()
                 if "name" in user_data:
                     cv2.imwrite(KNOWN_FACE_FILE, face)
                     known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
                     print(f"Saved your face as {user_data['name']}")
-                    face_present = True
-                    greeted = True
+                    face_detected = True
+                    processing_new_face = False
                     last_seen = current_time
         else:
-            # Nicio față detectată
-            if face_present:
-                print("Face lost.")
-                last_seen = current_time
-            else:
-                print("No face detected.")
-            face_present = False
-            greeted = False
-
+            print("No face detected.")
+            face_detected = False
         time.sleep(1)
 
 
-### Clasa pentru Google Cloud TTS
+#########################################
+# Clasa pentru Google Cloud TTS (rămâne similară)
+#########################################
 
 class CloudTextToSpeech:
     def __init__(self, key_path):
@@ -265,7 +271,7 @@ class CloudTextToSpeech:
                     break
                 time.sleep(0.2)
         except Exception as e:
-            print("Eroare la redare audio:", e)
+            print("Error during audio playback:", e)
         finally:
             self.current_process = None
             os.remove(filename)
@@ -274,7 +280,9 @@ class CloudTextToSpeech:
             afiseaza_emoji(emotie)
 
 
-### Funcții de wake word și ascultarea inputului
+#########################################
+# Funcții pentru wake word și ascultarea inputului
+#########################################
 
 def wake_word_detection():
     rec = sr.Recognizer()
@@ -310,7 +318,9 @@ def listen_user_input(timeout=15, phrase_limit=7):
             return ""
 
 
-### Funcția pentru a obține răspunsul de la ChatGPT cu context persistent
+#########################################
+# Funcția pentru a obține răspunsul de la ChatGPT
+#########################################
 
 def get_chat_response(user_text):
     try:
@@ -330,14 +340,14 @@ def get_chat_response(user_text):
             "content": (
                     "You are Nora, a loving, enthusiastic, and humorous girlfriend AI. "
                     "Speak in a warm, affectionate tone, always addressing the user as 'darling'. "
-                    "Your responses are caring, witty, and supportive, and vary your language so as not to be repetitive. " +
+                    "Your responses should be caring, witty, and supportive, and vary your language to avoid repetition. " +
                     name_context +
                     ("Recent conversation history:\n" + history_str if history_str else "") +
                     "\nKeep your answer brief and concise (no more than three lines) and do not include emojis."
             )
         }
         raspuns = openai.ChatCompletion.create(
-            model="gpt-4o",  # sau "gpt-3.5-turbo"
+            model="gpt-4o",  # or "gpt-3.5-turbo"
             messages=[
                 system_message,
                 {"role": "user", "content": user_text}
@@ -348,11 +358,13 @@ def get_chat_response(user_text):
         update_conversation_history(user_text, mesaj_ai)
         return mesaj_ai
     except Exception as e:
-        print("❌ Eroare la apelarea API-ului ChatGPT:", e)
+        print("❌ Error calling ChatGPT API:", e)
         return "I'm sorry, darling, I encountered an error."
 
 
-### Funcția de monitorizare a întreruperii în timpul redării TTS
+#########################################
+# Funcția de monitorizare a întreruperii în timpul redării TTS
+#########################################
 
 def monitor_interruption(tts_instance, stop_event):
     rec = sr.Recognizer()
@@ -373,13 +385,15 @@ def monitor_interruption(tts_instance, stop_event):
         time.sleep(0.05)
 
 
-### Funcția principală
+#########################################
+# Funcția principală
+#########################################
 
 def main_loop():
     tts = CloudTextToSpeech("/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json")
     awake = False
 
-    # Pornește monitorizarea webcam-ului într-un thread dedicat (daemon)
+    # Pornim monitorizarea webcam-ului într-un thread daemon
     webcam_thread = threading.Thread(target=monitor_webcam, args=(tts,), daemon=True)
     webcam_thread.start()
 
@@ -394,13 +408,13 @@ def main_loop():
 
         user_input = listen_user_input(timeout=15, phrase_limit=7)
 
-        # Actualizează numele dacă utilizatorul spune "my name is ..."
+        # Actualizează numele dacă se spune "my name is ..."
         if user_input.lower().startswith("my name is"):
             parts = user_input.split("my name is", 1)
             if len(parts) == 2:
                 name = parts[1].strip().split()[0]
                 update_user_data(name)
-                print(f"Got it, darling, I will remember your name as {name}!")
+                print(f"Got it, darling, I'll remember your name as {name}!")
                 tts.vorbeste(f"Alright, darling, I'll remember your name is {name}.", "idle")
                 continue
 
