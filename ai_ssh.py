@@ -308,7 +308,7 @@ def main_loop():
         user_input = listen_user_input(timeout=15, phrase_limit=7)
 
         # Verifică dacă inputul este NSFW (indicator: "naughty")
-        if "naughty" in user_input.lower():
+        if "sexy" in user_input.lower():
             mesaj_ai = get_nsfw_response(user_input)
         else:
             # Detectează și actualizează numele dacă se spune "my name is ..."
