@@ -21,7 +21,7 @@ sys.stderr = open(os.devnull, 'w')
 openai.api_key = "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"
 
 # Setează calea către cheia Google Cloud TTS
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/cale/catre/cheia_google.json"
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] ="/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json"
 
 # === Sense HAT ===
 sense = SenseHat()
