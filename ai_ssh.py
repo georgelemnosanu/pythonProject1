@@ -565,4 +565,4 @@ def asculta_si_raspunde():
                     # Save immediately
                     salveaza_user_data(user_data)
                     # Add to context as system message for stronger remembering
-                    context = [msg for msg in context if not (msg.get("role") == "system" and "user's name is" in msg
+                    context = [msg for msg in context if not (msg.get("role") == "system" and "user's name is" in msg)]
