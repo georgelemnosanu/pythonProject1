@@ -20,7 +20,7 @@ os.dup2(devnull, 2)
 os.close(devnull)
 
 # === Config OpenAI și Google TTS ===
-openai.api_key = os.environ.get("OPENAI_API_KEY")  # Cheia API se așteaptă să fie setată în mediul de sistem
+openai.api_key = os.environ.get("OPENAI_API_KEY")
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json"
 
 # === Sense HAT ===
@@ -32,7 +32,7 @@ USER_DATA_FILE = "user_data.json"
 KNOWN_FACE_FILE = "known_face.jpg"
 
 
-### Funcții de memorie pentru conversație și pentru datele utilizatorului
+### Funcții de memorie pentru conversație și date despre utilizator
 
 def load_conversation_history(max_items=3):
     if os.path.exists(CONVERSATION_HISTORY_FILE):
@@ -81,7 +81,7 @@ def update_user_data(name):
         print("Error updating user data:", e)
 
 
-### Funcții pentru afișarea emoji-urilor și detectarea stării
+### Funcții pentru afișarea emoji‑urilor și detectarea stării
 
 def afiseaza_emoji(tip):
     print(f"[Emoji: {tip}]")
@@ -102,7 +102,6 @@ def detecteaza_stare(text):
 
 ### Funcții pentru webcam
 
-# Încarcă classifier-ul Haar Cascade pentru detecția feței
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
 
@@ -126,13 +125,39 @@ def compare_faces(known_face, new_face, threshold=10000):
         return False
 
 
-# Funcția actualizată pentru monitorizarea webcam-ului
-def monitor_webcam():
+# Funcție pentru a cere și rosti glume
+def ask_for_joke(tts_instance):
+    # Folosește TTS pentru a întreba
+    tts_instance.vorbeste("I see you, darling. Do you want to hear a joke?", "idle")
+    rec = sr.Recognizer()
+    with sr.Microphone() as source:
+        rec.adjust_for_ambient_noise(source)
+        try:
+            audio = rec.listen(source, timeout=5, phrase_time_limit=3)
+            response = rec.recognize_google(audio, language="en-US").lower()
+            if "yes" in response:
+                jokes = [
+                    "Why did the scarecrow win an award? Because he was outstanding in his field.",
+                    "I'm reading a book on anti-gravity. It's impossible to put down!",
+                    "Why don't scientists trust atoms? Because they make up everything."
+                ]
+                import random
+                joke = random.choice(jokes)
+                tts_instance.vorbeste(joke, "fericit")
+            else:
+                tts_instance.vorbeste("Alright, darling, maybe another time.", "idle")
+        except Exception:
+            tts_instance.vorbeste("I didn't catch that, darling.", "confuz")
+
+
+# Funcția actualizată pentru monitorizarea webcam‑ului
+def monitor_webcam(tts_instance):
     cap = cv2.VideoCapture(0)
     known_face = None
     if os.path.exists(KNOWN_FACE_FILE):
         known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
     face_present = False
+    greeted = False  # Flag pentru a evita repetarea salutului
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -141,30 +166,38 @@ def monitor_webcam():
         if face is not None:
             if known_face is not None:
                 if compare_faces(known_face, face):
-                    # Dacă fața este recunoscută ca fiind cea cunoscută, dar anterior era absent,
-                    # salută "Welcome back, darling!"
                     if not face_present:
-                        print("Welcome back, darling!")
-                    face_present = True
+                        # Dacă înainte nu era prezentă fața și acum apare, salută și cere glumă
+                        if not greeted:
+                            print("Welcome back, darling!")
+                            tts_instance.vorbeste("Welcome back, darling!", "idle")
+                            # Așteaptă puțin ca să nu interfereze cu restul fluxului, apoi rostește gluma
+                            time.sleep(1)
+                            ask_for_joke(tts_instance)
+                            greeted = True
+                        face_present = True
                 else:
-                    # Dacă fața diferă de cea cunoscută, apelează mesajul pentru o față nouă.
                     if face_present:
                         print("I see someone new! Who are you?")
+                        tts_instance.vorbeste("I see someone new! Who are you?", "confuz")
                     face_present = False
+                    greeted = False
             else:
-                # Dacă nu avem încă o față cunoscută și user_data conține un nume, salvează fața.
+                # Dacă nu avem o față cunoscută, dar avem nume în user_data, salvăm fața
                 user_data = load_user_data()
                 if "name" in user_data:
                     cv2.imwrite(KNOWN_FACE_FILE, face)
                     known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
                     print(f"Saved your face as {user_data['name']}")
                     face_present = True
+                    greeted = True
         else:
             face_present = False
+            greeted = False
         time.sleep(1)
 
 
-### Clasa pentru Google Cloud TTS (rămâne neschimbată față de versiunea anterioară)
+### Clasa pentru Google Cloud TTS
 
 class CloudTextToSpeech:
     def __init__(self, key_path):
@@ -249,7 +282,7 @@ def listen_user_input(timeout=15, phrase_limit=7):
             return ""
 
 
-### Funcția pentru a obține răspunsul de la ChatGPT
+### Funcția pentru a obține răspunsul de la ChatGPT cu context persistent
 
 def get_chat_response(user_text):
     try:
@@ -269,14 +302,14 @@ def get_chat_response(user_text):
             "content": (
                     "You are Nora, a loving, enthusiastic, and humorous girlfriend AI. "
                     "Speak in a warm, affectionate tone, always addressing the user as 'darling'. "
-                    "Your responses are caring, witty, and supportive, and you vary your language so as not to be repetitive. " +
+                    "Your responses are caring, witty, and supportive, and vary your language so as not to be repetitive. " +
                     name_context +
                     ("Recent conversation history:\n" + history_str if history_str else "") +
                     "\nKeep your answer brief and concise (no more than three lines) and do not include emojis."
             )
         }
         raspuns = openai.ChatCompletion.create(
-            model="gpt-4o",
+            model="gpt-4o",  # sau "gpt-3.5-turbo"
             messages=[
                 system_message,
                 {"role": "user", "content": user_text}
@@ -318,8 +351,8 @@ def main_loop():
     tts = CloudTextToSpeech("/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json")
     awake = False
 
-    # Pornește thread-ul pentru monitorizarea webcam-ului
-    webcam_thread = threading.Thread(target=monitor_webcam, daemon=True)
+    # Pornește monitorizarea webcam-ului într-un thread dedicat (daemon)
+    webcam_thread = threading.Thread(target=monitor_webcam, args=(tts,), daemon=True)
     webcam_thread.start()
 
     while True:
@@ -333,6 +366,7 @@ def main_loop():
 
         user_input = listen_user_input(timeout=15, phrase_limit=7)
 
+        # Actualizează numele dacă utilizatorul spune "my name is ..."
         if user_input.lower().startswith("my name is"):
             parts = user_input.split("my name is", 1)
             if len(parts) == 2:
