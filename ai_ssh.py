@@ -6,7 +6,7 @@ import platform
 import time
 import random
 import math
-import re  # Corect: importăm modulul re din biblioteca standard
+import re
 import speech_recognition as sr
 import openai
 import json
@@ -23,7 +23,7 @@ openai.api_key = "sk-proj-AdIs_MZpg7V6oj0LIE-dI1lTYN0z0Neh3D7S4bqeVJqCkEshT_MFuI
 # === Sense HAT ===
 sense = SenseHat()
 
-# Definim calea de salvare a fișierelor într-o locație accesibilă
+# Definim căile de salvare a fișierelor într-o locație accesibilă
 LOG_FILE = os.path.expanduser("~/asistent_ai/conversatie_log.txt")
 USER_FILE = os.path.expanduser("~/asistent_ai/user_data.json")
 
@@ -36,14 +36,12 @@ def convert_pattern_to_pixels(pattern):
     """Converts a pattern of B (black) and Y (yellow) to pixels"""
     Y = (255, 255, 0)  # Yellow
     B = (0, 0, 0)      # Black
-
     pixels = []
     for char in pattern:
         if char == 'Y':
             pixels.append(Y)
-        else:  # 'B' sau orice alt caracter
+        else:
             pixels.append(B)
-
     return pixels
 
 
@@ -57,7 +55,7 @@ def afiseaza_emoji(tip):
         BL = (135, 206, 235) # albastru deschis
         G = (0, 255, 0)      # verde
 
-        # Dicționarul de modele LED (pattern) format din B și Y
+        # Dicționarul de modele LED (pattern) din B și Y
         emoji_patterns = {
             "idle": "B,B,B,B,B,B,B,B,B,B,Y,Y,Y,Y,B,B,B,Y,B,B,B,B,Y,B,B,Y,B,B,B,B,Y,B,B,Y,B,B,B,B,Y,B,B,Y,Y,Y,Y,Y,Y,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B",
             "vorbire": "B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y,B,Y",
@@ -69,23 +67,20 @@ def afiseaza_emoji(tip):
             "heart": "B,B,Y,B,B,Y,B,B,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,B,Y,Y,Y,Y,Y,Y,B,B,B,Y,Y,Y,Y,B,B,B,B,B,Y,Y,B,B,B,B,B,B,B,Y,B,B,B,B,B,B,B,B,B,B,B",
             "smile": "B,B,B,B,B,B,B,B,B,B,Y,Y,Y,Y,B,B,B,Y,B,B,B,B,Y,B,B,Y,B,B,B,B,Y,B,B,Y,B,B,B,B,Y,B,B,Y,Y,Y,Y,Y,Y,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B",
             "sad_face": "B,B,B,B,B,B,B,B,B,B,Y,Y,Y,Y,B,B,B,Y,B,B,B,B,Y,B,B,Y,B,B,B,B,Y,B,B,Y,Y,Y,Y,Y,Y,B,B,Y,B,B,B,B,Y,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B",
-            "neutral": "B,B,B,B,B,B,B,B,B,B,Y,Y,Y,Y,B,B,B,Y,B,B,B,B,Y,B,B,Y,B,B,B,B,Y,B,B,Y,B,B,B,B,Y,B,B,Y,Y,Y,Y,Y,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B",
+            "neutral": "B,B,B,B,B,B,B,B,B,B,Y,Y,Y,Y,B,B,B,Y,B,B,B,B,Y,B,B,Y,B,B,B,B,Y,B,B,Y,B,B,B,B,Y,B,B,Y,Y,Y,Y,Y,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B",
             "wink": "B,B,B,B,B,B,B,B,B,B,Y,Y,Y,Y,B,B,B,Y,B,B,B,B,Y,B,B,B,Y,Y,B,B,Y,B,B,Y,B,B,B,B,Y,B,B,Y,Y,Y,Y,Y,Y,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B",
-            "surprise": "B,B,B,B,B,B,B,B,B,B,Y,Y,Y,Y,B,B,B,Y,B,B,B,B,Y,B,B,Y,Y,Y,Y,Y,Y,B,B,Y,B,B,B,B,Y,B,B,B,Y,Y,Y,Y,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B",
+            "surprise": "B,B,B,B,B,B,B,B,B,B,Y,Y,Y,Y,B,B,B,Y,B,B,B,B,Y,B,B,Y,Y,Y,Y,Y,Y,B,B,Y,B,B,B,B,Y,B,B,B,Y,Y,Y,Y,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B,B",
             "question": "B,B,B,B,B,B,B,B,B,B,Y,Y,Y,Y,B,B,B,Y,B,B,B,B,Y,B,B,B,B,B,B,Y,B,B,B,B,B,B,Y,B,B,B,B,B,B,B,Y,B,B,B,B,B,B,B,B,B,B,B,B,B,Y,B,B,B"
         }
 
-        # Dacă tipul primit există în dicționar, se folosește modelul respectiv
         if tip in emoji_patterns:
             pattern = emoji_patterns[tip].replace(" ", "").split(",")
             pixels = convert_pattern_to_pixels(pattern)
             sense.set_pixels(pixels)
         else:
-            # Dacă nu se găsește, se folosește idle ca model implicit
             pattern = emoji_patterns["idle"].replace(" ", "").split(",")
             pixels = convert_pattern_to_pixels(pattern)
             sense.set_pixels(pixels)
-
     except Exception as e:
         print("[Sense HAT] Emoji error:", e)
 
@@ -93,25 +88,21 @@ def afiseaza_emoji(tip):
 def afiseaza_ceas():
     """Display the current time on the LED matrix"""
     try:
-        # Curățăm afișajul
         sense.clear()
-
         now = datetime.now()
         hour = now.hour
         minute = now.minute
 
-        # Definirea culorilor
         R = (255, 0, 0)   # roșu pentru oră
         B = (0, 0, 255)   # albastru pentru minute
         G = (0, 255, 0)   # verde pentru centru
 
-        # Desenăm fața ceasului (centru)
+        # Desenăm centrul ceasului
         sense.set_pixel(3, 3, G)
         sense.set_pixel(4, 3, G)
         sense.set_pixel(3, 4, G)
         sense.set_pixel(4, 4, G)
 
-        # Calculăm poziția limbii orei (folosind formatul de 12 ore)
         hour_angle = ((hour % 12) + minute / 60) * (360 / 12)
         hour_x = int(3.5 + 2.5 * math.sin(math.radians(hour_angle)))
         hour_y = int(3.5 - 2.5 * math.cos(math.radians(hour_angle)))
@@ -119,7 +110,6 @@ def afiseaza_ceas():
         hour_y = max(0, min(7, hour_y))
         sense.set_pixel(hour_x, hour_y, R)
 
-        # Calculăm poziția limbii minutelor
         minute_angle = minute * (360 / 60)
         minute_x = int(3.5 + 3 * math.sin(math.radians(minute_angle)))
         minute_y = int(3.5 - 3 * math.cos(math.radians(minute_angle)))
@@ -128,9 +118,7 @@ def afiseaza_ceas():
         sense.set_pixel(minute_x, minute_y, B)
 
         time.sleep(5)
-        # Revenim la starea idle
         afiseaza_emoji("idle")
-
     except Exception as e:
         print("[Sense HAT] Clock display error:", e)
 
@@ -141,11 +129,9 @@ def read_sensors():
         temperature = round(sense.get_temperature(), 1)
         humidity = round(sense.get_humidity(), 1)
         pressure = round(sense.get_pressure(), 1)
-
         sensor_text = f"Current readings: Temperature is {temperature} degrees Celsius, Humidity is {humidity} percent, and Pressure is {pressure} millibars."
         print("📊 Sensors:", sensor_text)
         return sensor_text
-
     except Exception as e:
         print("[Sense HAT] Sensor error:", e)
         return "I'm having trouble reading the sensors right now."
@@ -154,15 +140,14 @@ def read_sensors():
 def play_tictactoe():
     """Simple TicTacToe game on SenseHat"""
     try:
-        X = (255, 0, 0)   # Red for X
-        O = (0, 0, 255)   # Blue for O
-        B = (0, 0, 0)     # Black for empty
-        G = (0, 255, 0)   # Green for grid
+        X = (255, 0, 0)   # pentru X (roșu)
+        O = (0, 0, 255)   # pentru O (albastru)
+        B = (0, 0, 0)     # pentru celule goale
+        G = (0, 255, 0)   # pentru grilă
 
         board = [B] * 9
         grid_pixels = [B] * 64
 
-        # Desenăm grila
         for i in range(8):
             grid_pixels[8 * 2 + i] = G  # linie orizontală 1
             grid_pixels[8 * 5 + i] = G  # linie orizontală 2
@@ -177,11 +162,8 @@ def play_tictactoe():
 
         while not game_over:
             event = sense.stick.wait_for_event(emptybuffer=True)
-
             if event.action == "pressed":
                 x, y = 0, 0
-
-                # Mapăm direcția joystick-ului pe poziția din grilă
                 if event.direction == "up":
                     y = 0
                 elif event.direction == "middle":
@@ -197,33 +179,25 @@ def play_tictactoe():
                     x = 2
 
                 pos = y * 3 + x
-
                 if board[pos] == B:
                     board[pos] = current_player
-
-                    # Actualizăm afișajul
                     for i in range(9):
                         if board[i] != B:
                             row, col = i // 3, i % 3
                             pixel_row = row * 3
                             pixel_col = col * 3
-
                             if board[i] == X:
                                 grid_pixels[8 * (pixel_row + 1) + (pixel_col + 1)] = X
                             else:
                                 grid_pixels[8 * (pixel_row + 1) + (pixel_col + 1)] = O
-
                     sense.set_pixels(grid_pixels)
                     current_player = O if current_player == X else X
-
-                    # Simplificare: dacă evenimentul "middle" este apăsat, considerăm că jocul s-a terminat
                     if event.direction == "middle":
                         game_over = True
 
         print("🎮 Game ended")
         time.sleep(2)
         afiseaza_emoji("idle")
-
     except Exception as e:
         print("[Sense HAT] TicTacToe error:", e)
 
@@ -231,16 +205,16 @@ def play_tictactoe():
 def remove_emojis(text):
     """Remove common emoji characters from text"""
     emoji_patterns = re.compile("[" 
-                                u"\U0001F600-\U0001F64F"  # emoticons
-                                u"\U0001F300-\U0001F5FF"  # symbols & pictographs
-                                u"\U0001F680-\U0001F6FF"  # transport & map symbols
-                                u"\U0001F700-\U0001F77F"  # alchemical symbols
-                                u"\U0001F780-\U0001F7FF"  # Geometric Shapes
-                                u"\U0001F800-\U0001F8FF"  # Supplemental Arrows-C
-                                u"\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
-                                u"\U0001FA00-\U0001FA6F"  # Chess Symbols
-                                u"\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
-                                u"\U00002702-\U000027B0"  # Dingbats
+                                u"\U0001F600-\U0001F64F"
+                                u"\U0001F300-\U0001F5FF"
+                                u"\U0001F680-\U0001F6FF"
+                                u"\U0001F700-\U0001F77F"
+                                u"\U0001F780-\U0001F7FF"
+                                u"\U0001F800-\U0001F8FF"
+                                u"\U0001F900-\U0001F9FF"
+                                u"\U0001FA00-\U0001FA6F"
+                                u"\U0001FA70-\U0001FAFF"
+                                u"\U00002702-\U000027B0"
                                 u"\U000024C2-\U0001F251"
                                 "]+", flags=re.UNICODE)
     return emoji_patterns.sub(r'', text)
@@ -413,8 +387,6 @@ def asculta_si_raspunde():
     ]
 
     user_data = incarca_user_data()
-
-    # Dacă numele utilizatorului există, îl adăugăm în context
     if user_data.get("nume"):
         context.append({"role": "system",
                         "content": f"The user's name is {user_data['nume']}. Always remember this and address them by name occasionally."})
@@ -430,7 +402,6 @@ def asculta_si_raspunde():
     while True:
         try:
             current_time = time.time()
-
             if not mic_active and current_time - curiosity_timer > CURIOSITY_INTERVAL:
                 curious_prompt = get_random_curious_prompt()
                 print(f"🤔 Getting curious: {curious_prompt}")
@@ -456,7 +427,6 @@ def asculta_si_raspunde():
 
             user_input = rec.recognize_google(audio, language="en-US")
             print("🧑 You:", user_input)
-
             last_interaction_time = time.time()
             curiosity_timer = time.time()
 
@@ -495,21 +465,20 @@ def asculta_si_raspunde():
                     name = user_input.lower().split("i am")[-1].strip().capitalize()
 
                 name = re.sub(r'[^\w\s]', '', name).strip().capitalize()
-
                 if name:
                     user_data["nume"] = name
                     salveaza_user_data(user_data)
-                    # Actualizăm contextul: eliminăm mesajele vechi legate de nume
                     context = [msg for msg in context if not (msg.get("role") == "system" and "user's name is" in msg)]
-                    # Adăugăm noul mesaj de sistem cu numele utilizatorului
                     context.append({"role": "system", "content": f"The user's name is {name}. Always remember this."})
                     tts.vorbeste(f"Nice to meet you, {name}!", "smile")
                     continue
 
-            # Pentru alte tipuri de input, poți extinde logica aici
-
+            # Extinde aici logica pentru alte intrări...
         except Exception as e:
             print("Error in main loop:", e)
+            afiseaza_emoji("confuz")
+            time.sleep(2)
+            afiseaza_emoji("idle")
 
 
 if __name__ == "__main__":
