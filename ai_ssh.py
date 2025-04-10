@@ -119,16 +119,18 @@ def wake_word_detection():
     return False
 
 
-def listen_user_input(timeout=10, phrase_limit=5):
+def listen_user_input(timeout=15, phrase_limit=7):
     """
-    Ascultă inputul vocal al utilizatorului cu timeout și phrase_time_limit
-    pentru detectarea tăcerii. Dacă nu se înțelege, returnează șirul gol.
+    Ascultă inputul vocal al utilizatorului folosind un timeout și phrase_time_limit mai mari,
+    astfel încât utilizatorul să poată vorbi până când a terminat. Dacă nu se înțelege vorbirea,
+    returnează un șir gol și solicită repetare.
     """
     rec = sr.Recognizer()
     with sr.Microphone() as source:
         print("What would you like to say, darling?")
         rec.adjust_for_ambient_noise(source)
         try:
+            # Am crescut timeout-ul și phrase_time_limit pentru a permite o vorbire mai lungă
             audio = rec.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
             user_text = rec.recognize_google(audio, language="en-US")
             print("Tu ai spus:", user_text)
@@ -180,7 +182,7 @@ def monitor_interruption(tts_instance, stop_event):
                 rec.adjust_for_ambient_noise(source)
                 audio = rec.listen(source, timeout=0.8, phrase_time_limit=1)
                 text = rec.recognize_google(audio, language="en-US")
-                if any(word in text.lower() for word in ["nora", "stop", "exit", "quit"]):
+                if any(word in text.lower() for word in ["nora", "stop", "exit", "quit","that's all"]):
                     print("Interruption detected:", text)
                     stop_event.set()
                     if tts_instance.current_process is not None:
