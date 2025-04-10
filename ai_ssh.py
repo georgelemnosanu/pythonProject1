@@ -156,34 +156,36 @@ def monitor_webcam(tts_instance):
     known_face = None
     if os.path.exists(KNOWN_FACE_FILE):
         known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
-    face_present = False
+    face_present = False  # Starea curentă: fața este detectată
+    last_seen = time.time()  # Timpul ultimei detecții
     greeted = False  # Flag pentru a evita repetarea salutului
     while True:
         ret, frame = cap.read()
         if not ret:
+            print("Could not read frame from webcam.")
             continue
         face = get_face_from_frame(frame)
         if face is not None:
+            print("Face captured.")
+            last_seen = time.time()  # Actualizează momentul de detecție
             if known_face is not None:
                 if compare_faces(known_face, face):
                     if not face_present:
-                        # Dacă înainte nu era prezentă fața și acum apare, salută și cere glumă
-                        if not greeted:
-                            print("Welcome back, darling!")
-                            tts_instance.vorbeste("Welcome back, darling!", "idle")
-                            # Așteaptă puțin ca să nu interfereze cu restul fluxului, apoi rostește gluma
-                            time.sleep(1)
-                            ask_for_joke(tts_instance)
-                            greeted = True
-                        face_present = True
+                        # Dacă fața era absentă și acum e detectată, salută
+                        print("Detected known face after absence.")
+                        tts_instance.vorbeste("Welcome back, darling!", "idle")
+                        # De asemenea, poți adăuga aici o întrebare (de ex.: "Do you want to hear a joke?")
+                        # ask_for_joke(tts_instance)  --> Dacă dorești să fie interactiv
+                        greeted = True
+                    face_present = True
                 else:
                     if face_present:
-                        print("I see someone new! Who are you?")
+                        print("Detected a new face! Who are you?")
                         tts_instance.vorbeste("I see someone new! Who are you?", "confuz")
                     face_present = False
                     greeted = False
             else:
-                # Dacă nu avem o față cunoscută, dar avem nume în user_data, salvăm fața
+                # Dacă nu avem o față cunoscută și avem numele în user_data, salvăm noua față
                 user_data = load_user_data()
                 if "name" in user_data:
                     cv2.imwrite(KNOWN_FACE_FILE, face)
@@ -192,6 +194,11 @@ def monitor_webcam(tts_instance):
                     face_present = True
                     greeted = True
         else:
+            # Nu s-a detectat nicio față
+            if face_present:
+                print("Face lost.")
+            else:
+                print("No face detected.")
             face_present = False
             greeted = False
         time.sleep(1)
