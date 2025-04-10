@@ -14,13 +14,15 @@ import openai
 from google.cloud import texttospeech
 from sense_hat import SenseHat
 
+import random  # Deși nu mai folosim lista statică, o păstrăm dacă dorești fallback
+
 # Redirecționează stderr pentru a suprima mesajele native (ALSA/JACK)
 devnull = os.open(os.devnull, os.O_WRONLY)
 os.dup2(devnull, 2)
 os.close(devnull)
 
 # === Config OpenAI și Google TTS ===
-openai.api_key = os.environ.get("OPENAI_API_KEY")  # Asigură-te că OPENAI_API_KEY este setată
+openai.api_key = os.environ.get("OPENAI_API_KEY")  # Asigură-te că OPENAI_API_KEY este setată în mediul de sistem
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json"
 
 # === Sense HAT ===
@@ -191,7 +193,6 @@ def update_user_data(name):
 
 def afiseaza_emoji(tip):
     print(f"[Emoji: {tip}]")
-    # Afișează pattern-ul LED corespunzător dacă există
     if tip.lower() in emoji_patterns:
         afiseaza_led(tip.lower())
 
@@ -229,6 +230,28 @@ def read_sensors():
     except Exception as e:
         print("Error reading sensors:", e)
         return "I'm sorry, darling, I'm having trouble reading the sensors right now."
+
+
+#############################################
+# Funcția pentru generarea unui citat de iubire de la ChatGPT
+#############################################
+
+def get_love_quote():
+    try:
+        system_message = {
+            "role": "system",
+            "content": "You are a romantic poet. Generate a very short, heartfelt love quote without emojis."
+        }
+        response = openai.ChatCompletion.create(
+            model="gpt-4o",
+            messages=[system_message, {"role": "user", "content": "Give me a love quote."}]
+        )
+        love_quote = response.choices[0].message.content.strip()
+        print("Love quote generated:", love_quote)
+        return love_quote
+    except Exception as e:
+        print("Error generating love quote:", e)
+        return "I love you with all my heart, darling."
 
 
 #############################################
@@ -306,7 +329,6 @@ def wake_word_detection():
 
 
 def listen_user_input(timeout=15, phrase_limit=7):
-    # Semnalizează că asistentul ascultă prin afișarea pattern-ului "go"
     afiseaza_led("go")
     rec = sr.Recognizer()
     with sr.Microphone() as source:
@@ -352,7 +374,7 @@ def get_chat_response(user_text):
             )
         }
         raspuns = openai.ChatCompletion.create(
-            model="gpt-4o",  # or "gpt-3.5-turbo"
+            model="gpt-4o",  # sau "gpt-3.5-turbo"
             messages=[
                 system_message,
                 {"role": "user", "content": user_text}
@@ -414,10 +436,17 @@ def main_loop():
             parts = user_input.lower().split("show me", 1)
             if len(parts) == 2:
                 pattern = parts[1].strip()
-                # Dacă utilizatorul spune "heart", afișează modelul "love"
-                if pattern == "heart":
+                # Dacă se cere "heart" sau "love", afișează modelul "love" și generează un citat
+                if pattern in ["heart", "love"]:
                     pattern = "love"
-                if pattern in emoji_patterns:
+                    print(f"Displaying {pattern} pattern on LED.")
+                    afiseaza_led(pattern)
+                    # Generează un citat de iubire folosind ChatGPT
+                    quote = get_love_quote()
+                    tts.vorbeste(quote, "love")
+                    time.sleep(3)
+                    afiseaza_led("idle")
+                elif pattern in emoji_patterns:
                     print(f"Displaying {pattern} pattern on LED.")
                     afiseaza_led(pattern)
                     time.sleep(3)
@@ -457,6 +486,24 @@ def main_loop():
         monitor_thread.start()
         tts.vorbeste(mesaj_ai, emotie, stop_event=stop_event)
         monitor_thread.join()
+
+
+def get_love_quote():
+    try:
+        system_message = {
+            "role": "system",
+            "content": "You are a romantic poet. Generate a very short, heartfelt love quote without emojis."
+        }
+        response = openai.ChatCompletion.create(
+            model="gpt-4o",
+            messages=[system_message, {"role": "user", "content": "Give me a love quote."}]
+        )
+        love_quote = response.choices[0].message.content.strip()
+        print("Love quote generated:", love_quote)
+        return love_quote
+    except Exception as e:
+        print("Error generating love quote:", e)
+        return "I love you with all my heart, darling."
 
 
 if __name__ == "__main__":
