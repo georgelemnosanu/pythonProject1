@@ -48,7 +48,7 @@ class TestTTS:
                 f.write(response.audio_content)
             print("Redarea fișierului audio...")
             # Asigură-te că ai instalat mpg123 și că dispozitivul audio este configurat corect
-            subprocess.call(["mpg123", "-a", "plughw:2,0", filename])
+            subprocess.call(["mpg123", "-a", "plughw:0,0", filename])
         except Exception as ex:
             print("Error playing audio:", ex)
         finally:
