@@ -147,7 +147,7 @@ def get_chat_response(user_text):
         system_message = {
             "role": "system",
             "content": (
-                "You are Andra, a loving, enthusiastic, and humorous girlfriend AI. "
+                "You are Nora, a loving, enthusiastic, and humorous girlfriend AI. "
                 "Speak in a warm, affectionate tone, always addressing the user as 'darling'. "
                 "Your responses are caring, witty, and supportive, and you love to make the user smile."
             )
@@ -160,7 +160,7 @@ def get_chat_response(user_text):
             ]
         )
         mesaj_ai = raspuns.choices[0].message.content
-        print("🤖 Andra:", mesaj_ai)
+        print("🤖 Nora:", mesaj_ai)
         return mesaj_ai
     except Exception as e:
         print("❌ Eroare la apelarea API-ului ChatGPT:", e)
@@ -202,7 +202,7 @@ def main_loop():
                 continue
             else:
                 awake = True
-                print("Andra is now awake, darling!")
+                print("Nora is now awake, darling!")
 
         user_input = listen_user_input(timeout=10, phrase_limit=5)
         if user_input.lower() in ["stop", "exit", "quit", "that's all", "bye"]:
