@@ -38,7 +38,7 @@ def google_tts(text, emotie="idle"):
         out.write(response.audio_content)
 
     try:
-        os.system(f"mpg123 {filename}")
+        os.system(f"omxplayer {filename}")
     except Exception as e:
         print("Eroare la redare audio:", e)
     finally:
