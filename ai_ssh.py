@@ -185,30 +185,6 @@ def listen_user_input(timeout=15, phrase_limit=7):
 
 ### Funcția pentru a obține răspunsuri NSFW scurte (fără emoji în text)
 
-def get_nsfw_response(user_text):
-    try:
-        system_message = {
-            "role": "system",
-            "content": (
-                "You are Nora, a naughty, explicit, and playful erotic assistant. "
-                "When given a prompt, provide a very short, explicit erotic instruction using direct, vivid language and no emojis. "
-                "For example, your response could be: 'Grab your dick in your hand and start rubbing. Should we continue, darling?' "
-                "Keep your response concise (no more than three lines) and interactive."
-            )
-        }
-        response = openai.ChatCompletion.create(
-            model="gpt-4o",
-            messages=[
-                system_message,
-                {"role": "user", "content": user_text}
-            ]
-        )
-        nsfw_message = response.choices[0].message.content
-        print("🤖 Nora (NSFW):", nsfw_message)
-        return nsfw_message
-    except Exception as e:
-        print("❌ Eroare la apelarea API-ului ChatGPT (NSFW):", e)
-        return "I'm sorry, darling, I encountered an error."
 
 
 ### Funcția pentru a obține răspunsul standard (cu context) fără emoji
