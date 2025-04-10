@@ -13,16 +13,15 @@ import speech_recognition as sr
 import openai
 from google.cloud import texttospeech
 from sense_hat import SenseHat
+import random
 
-import random  # Deși nu mai folosim lista statică, o păstrăm dacă dorești fallback
-
-# Redirecționează stderr pentru a suprima mesajele native (ALSA/JACK)
+# Redirecționează stderr pentru a suprima mesajele native ALSA/JACK
 devnull = os.open(os.devnull, os.O_WRONLY)
 os.dup2(devnull, 2)
 os.close(devnull)
 
 # === Config OpenAI și Google TTS ===
-openai.api_key = os.environ.get("OPENAI_API_KEY")  # Asigură-te că OPENAI_API_KEY este setată în mediul de sistem
+openai.api_key = os.environ.get("OPENAI_API_KEY")  # Asigură-te că OPENAI_API_KEY este setată
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json"
 
 # === Sense HAT ===
@@ -233,14 +232,14 @@ def read_sensors():
 
 
 #############################################
-# Funcția pentru generarea unui citat de iubire de la ChatGPT
+# Funcția pentru generarea unui citat de iubire dinamic
 #############################################
 
 def get_love_quote():
     try:
         system_message = {
             "role": "system",
-            "content": "You are a romantic poet. Generate a very short, heartfelt love quote without emojis."
+            "content": "You are a romantic poet. Generate a very short, heartfelt love quote without using emojis."
         }
         response = openai.ChatCompletion.create(
             model="gpt-4o",
@@ -286,6 +285,7 @@ class CloudTextToSpeech:
         with open(filename, "wb") as out:
             out.write(response.audio_content)
 
+        # După redarea audio, setează LED la "idle"
         afiseaza_emoji("idle")
         try:
             process = subprocess.Popen(["mpg123", "-a", "plughw:2,0", filename])
@@ -329,11 +329,12 @@ def wake_word_detection():
 
 
 def listen_user_input(timeout=15, phrase_limit=7):
+    # Înainte de a asculta, afișează modelul "go" pe LED
     afiseaza_led("go")
     rec = sr.Recognizer()
     with sr.Microphone() as source:
         print("What would you like to say, darling?")
-        rec.adjust_for_ambient_noise(source)
+        rec.adjust_for_ambient_noise(source, duration=0.5)
         try:
             audio = rec.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
             user_text = rec.recognize_google(audio, language="en-US")
@@ -398,7 +399,7 @@ def monitor_interruption(tts_instance, stop_event):
     while not stop_event.is_set():
         try:
             with sr.Microphone() as source:
-                rec.adjust_for_ambient_noise(source)
+                rec.adjust_for_ambient_noise(source, duration=0.5)
                 audio = rec.listen(source, timeout=0.8, phrase_time_limit=1)
                 text = rec.recognize_google(audio, language="en-US")
                 if any(word in text.lower() for word in ["nora", "stop", "exit", "quit"]):
@@ -429,11 +430,19 @@ def main_loop():
                 print("Nora is now awake, darling!")
                 tts.vorbeste("Yes, darling!", "idle")
 
-        user_input = listen_user_input(timeout=15, phrase_limit=7)
+        user_input = listen_user_input(timeout=15, phrase_limit=7).strip().lower()
+
+        # Comandă pentru listarea pattern-urilor disponibile
+        if "what can you show me" in user_input:
+            available = ", ".join(emoji_patterns.keys())
+            response = f"I can show you the following LED patterns: {available}."
+            print("🤖 Nora:", response)
+            tts.vorbeste(response, "idle")
+            continue
 
         # Comandă pentru afișarea unui pattern LED: "show me <pattern>"
-        if "show me" in user_input.lower():
-            parts = user_input.lower().split("show me", 1)
+        if "show me" in user_input:
+            parts = user_input.split("show me", 1)
             if len(parts) == 2:
                 pattern = parts[1].strip()
                 # Dacă se cere "heart" sau "love", afișează modelul "love" și generează un citat
@@ -441,7 +450,6 @@ def main_loop():
                     pattern = "love"
                     print(f"Displaying {pattern} pattern on LED.")
                     afiseaza_led(pattern)
-                    # Generează un citat de iubire folosind ChatGPT
                     quote = get_love_quote()
                     tts.vorbeste(quote, "love")
                     time.sleep(3)
@@ -454,28 +462,28 @@ def main_loop():
                 continue
 
         # Comandă pentru citirea senzorilor
-        if any(keyword in user_input.lower() for keyword in ["sensor", "temperature", "humidity", "pressure"]):
+        if any(keyword in user_input for keyword in ["sensor", "temperature", "humidity", "pressure"]):
             sensor_text = read_sensors()
             tts.vorbeste(sensor_text, "idle")
             continue
 
         # Actualizează numele
-        if user_input.lower().startswith("my name is"):
+        if user_input.startswith("my name is"):
             parts = user_input.split("my name is", 1)
             if len(parts) == 2:
                 name = parts[1].strip().split()[0]
                 update_user_data(name)
                 print(f"Got it, darling, I'll remember your name as {name}!")
                 tts.vorbeste(f"Alright, darling, I'll remember your name is {name}.", "idle")
-                continue
+            continue
 
-        if user_input.lower() in ["stop", "exit", "quit", "that's all", "bye","that's all thank you","that's all"]:
+        if user_input in ["stop", "exit", "quit", "that's all", "bye"]:
             tts.vorbeste("Alright, darling, talk to you later!", "idle")
             awake = False
             print("Returning to sleep mode...")
             continue
 
-        if user_input.strip() == "":
+        if user_input == "":
             tts.vorbeste("Can you repeat please, darling?", "confuz")
             continue
 
@@ -486,24 +494,6 @@ def main_loop():
         monitor_thread.start()
         tts.vorbeste(mesaj_ai, emotie, stop_event=stop_event)
         monitor_thread.join()
-
-
-def get_love_quote():
-    try:
-        system_message = {
-            "role": "system",
-            "content": "You are a romantic poet. Generate a very short, heartfelt love quote without emojis."
-        }
-        response = openai.ChatCompletion.create(
-            model="gpt-4o",
-            messages=[system_message, {"role": "user", "content": "Give me a love quote."}]
-        )
-        love_quote = response.choices[0].message.content.strip()
-        print("Love quote generated:", love_quote)
-        return love_quote
-    except Exception as e:
-        print("Error generating love quote:", e)
-        return "I love you with all my heart, darling."
 
 
 if __name__ == "__main__":
