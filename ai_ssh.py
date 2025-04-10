@@ -190,20 +190,16 @@ def update_user_data(name):
 #############################################
 
 def afiseaza_emoji(tip):
-    # La apelul TTS, se afișează LED în funcție de starea dorită:
-    # pentru "love" afișează modelul "love", pentru "happy" modelul "happy", altfel folosește pattern-ul cu același nume dacă există
     print(f"[Emoji: {tip}]")
-    pattern = tip.lower()
-    if pattern in emoji_patterns:
-        afiseaza_led(pattern)
+    # Afișează pattern-ul LED corespunzător dacă există
+    if tip.lower() in emoji_patterns:
+        afiseaza_led(tip.lower())
 
 
 def detecteaza_stare(text):
     text = text.lower()
-    # Dacă se găsește cuvântul love sau heart, returnează "love"
     if any(word in text for word in ["love", "heart", "affection"]):
         return "love"
-    # Dacă se găsește cuvântul happy, great sau excited, returnează "happy"
     if any(word in text for word in ["happy", "great", "excited"]):
         return "happy"
     if any(word in text for word in ["sad", "sorry", "unfortunately"]):
@@ -267,9 +263,8 @@ class CloudTextToSpeech:
         with open(filename, "wb") as out:
             out.write(response.audio_content)
 
-        afiseaza_emoji("idle")  # Folosește 'idle' ca stare implicită după vorbire
+        afiseaza_emoji("idle")
         try:
-            # Folosește cardul 2 (Headphones) conform listei tale
             process = subprocess.Popen(["mpg123", "-a", "plughw:2,0", filename])
             self.current_process = process
             while process.poll() is None:
@@ -288,7 +283,7 @@ class CloudTextToSpeech:
 
 
 #############################################
-# Funcții pentru wake word și ascultarea inputului
+# Funcții pentru wake word și input vocal
 #############################################
 
 def wake_word_detection():
@@ -311,7 +306,7 @@ def wake_word_detection():
 
 
 def listen_user_input(timeout=15, phrase_limit=7):
-    # Înainte de a asculta, afișează pe LED modelul "go"
+    # Semnalizează că asistentul ascultă prin afișarea pattern-ului "go"
     afiseaza_led("go")
     rec = sr.Recognizer()
     with sr.Microphone() as source:
@@ -333,7 +328,7 @@ def listen_user_input(timeout=15, phrase_limit=7):
 
 def get_chat_response(user_text):
     try:
-        history = load_conversation_history(max_items=3)
+        history = load_conversation_history(max_items=5)
         history_str = ""
         if history:
             interactions = []
@@ -343,21 +338,21 @@ def get_chat_response(user_text):
         user_data = load_user_data()
         name_context = ""
         if "name" in user_data:
-            # Modificăm promptul pentru a sublinia că asistentul trebuie să-și reamintească numele
-            name_context = f"Remember, the user's name is {user_data['name']}. Always include their name in your responses when relevant. "
+            name_context = f"The user's name is {user_data['name']}. "
         system_message = {
             "role": "system",
             "content": (
-                    "You are Nora, a loving, enthusiastic, and humorous girlfriend AI who never forgets the user's name. "
+                    "You are Nora, a loving, enthusiastic, and humorous girlfriend AI with long-term memory. "
+                    "You remember all important details from previous interactions and always refer to the user by name when appropriate. "
                     "Speak in a warm, affectionate tone and always address the user as 'darling'. "
-                    "Your responses are caring, witty, and supportive, and you vary your language to avoid repetition. " +
+                    "Your responses are caring, witty, supportive, and personalized. " +
                     name_context +
                     ("Recent conversation history:\n" + history_str if history_str else "") +
                     "\nKeep your answer brief and concise (no more than three lines) and do not include emojis."
             )
         }
         raspuns = openai.ChatCompletion.create(
-            model="gpt-4o",  # sau "gpt-3.5-turbo"
+            model="gpt-4o",  # or "gpt-3.5-turbo"
             messages=[
                 system_message,
                 {"role": "user", "content": user_text}
@@ -414,11 +409,14 @@ def main_loop():
 
         user_input = listen_user_input(timeout=15, phrase_limit=7)
 
-        # Comandă pentru afișarea unui pattern LED dacă utilizatorul spune "show me ..."
+        # Comandă pentru afișarea unui pattern LED: "show me <pattern>"
         if "show me" in user_input.lower():
             parts = user_input.lower().split("show me", 1)
             if len(parts) == 2:
                 pattern = parts[1].strip()
+                # Dacă utilizatorul spune "heart", afișează modelul "love"
+                if pattern == "heart":
+                    pattern = "love"
                 if pattern in emoji_patterns:
                     print(f"Displaying {pattern} pattern on LED.")
                     afiseaza_led(pattern)
@@ -426,13 +424,13 @@ def main_loop():
                     afiseaza_led("idle")
                 continue
 
-        # Citește senzorii dacă inputul conține cuvinte legate de senzor
+        # Comandă pentru citirea senzorilor
         if any(keyword in user_input.lower() for keyword in ["sensor", "temperature", "humidity", "pressure"]):
             sensor_text = read_sensors()
             tts.vorbeste(sensor_text, "idle")
             continue
 
-        # Actualizează numele dacă utilizatorul spune "my name is ..."
+        # Actualizează numele
         if user_input.lower().startswith("my name is"):
             parts = user_input.split("my name is", 1)
             if len(parts) == 2:
