@@ -240,6 +240,31 @@ def get_chat_response(user_text):
         return "I'm sorry, darling, I encountered an error."
 
 
+def get_nsfw_response(user_text):
+    """
+    Trimite textul NSFW la ChatGPT cu un mesaj de sistem care specifică să fie explicit sexual,
+    și returnează răspunsul.
+    """
+    system_message = {
+        "role": "system",
+        "content": (
+            "You are a highly explicit, adult-only erotic assistant. "
+            "When a user gives you a prompt, provide explicit, detailed sexual erotica instructions "
+            "or intimate role-playing responses. Your tone is playful, warm, and indulgent, and you use terms like 'darling' liberally. "
+            "Ensure that the content is explicitly erotic and intended for consenting adults only."
+        )
+    }
+    response = openai.ChatCompletion.create(
+        model="gpt-4o",  # sau "gpt-3.5-turbo" dacă preferi
+        messages=[
+            system_message,
+            {"role": "user", "content": user_text}
+        ]
+    )
+    nsfw_message = response.choices[0].message.content
+    print("🤖 Nora (NSFW):", nsfw_message)
+    return nsfw_message
+
 ### Funcția de monitorizare a întreruperii în timpul redării TTS
 
 def monitor_interruption(tts_instance, stop_event):
@@ -272,7 +297,6 @@ def main_loop():
     tts = CloudTextToSpeech("/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json")
     awake = False
 
-    # Modul conversațional rămâne activ până când utilizatorul o încheie explicit.
     while True:
         if not awake:
             if not wake_word_detection():
@@ -283,27 +307,32 @@ def main_loop():
 
         user_input = listen_user_input(timeout=15, phrase_limit=7)
 
-        # Detectare și actualizare nume
-        if user_input.lower().startswith("my name is"):
-            parts = user_input.split("my name is", 1)
-            if len(parts) == 2:
-                name = parts[1].strip().split()[0]
-                update_user_data(name)
-                print(f"Got it, darling, I will remember your name as {name}!")
-                tts.vorbeste(f"Alright darling, I will remember your name is {name}.", "idle")
+        # Verifică dacă inputul este NSFW (indicator: "naughty")
+        if "naughty" in user_input.lower():
+            mesaj_ai = get_nsfw_response(user_input)
+        else:
+            # Detectează și actualizează numele dacă se spune "my name is ..."
+            if user_input.lower().startswith("my name is"):
+                parts = user_input.split("my name is", 1)
+                if len(parts) == 2:
+                    name = parts[1].strip().split()[0]
+                    update_user_data(name)
+                    print(f"Got it, darling, I will remember your name as {name}!")
+                    tts.vorbeste(f"Alright darling, I will remember your name is {name}.", "idle")
+                    continue
+
+            if user_input.lower() in ["stop", "exit", "quit", "that's all", "bye"]:
+                tts.vorbeste("Alright darling, talk to you later!", "idle")
+                awake = False
+                print("Returning to sleep mode...")
                 continue
 
-        if user_input.lower() in ["stop", "exit", "quit", "that's all", "bye"]:
-            tts.vorbeste("Alright darling, talk to you later!", "idle")
-            awake = False
-            print("Returning to sleep mode...")
-            continue
+            if user_input.strip() == "":
+                tts.vorbeste("Can you repeat please, darling?", "confuz")
+                continue
 
-        if user_input.strip() == "":
-            tts.vorbeste("Can you repeat please, darling?", "confuz")
-            continue
+            mesaj_ai = get_chat_response(user_input)
 
-        mesaj_ai = get_chat_response(user_input)
         emotie = detecteaza_stare(mesaj_ai)
         stop_event = threading.Event()
         monitor_thread = threading.Thread(target=monitor_interruption, args=(tts, stop_event))
@@ -314,3 +343,4 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
