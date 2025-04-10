@@ -7,8 +7,6 @@ import time
 import threading
 import subprocess
 import json
-import cv2
-import numpy as np
 import speech_recognition as sr
 import openai
 from google.cloud import texttospeech
