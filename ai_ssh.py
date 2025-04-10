@@ -245,8 +245,8 @@ def get_chat_response(user_text):
 def monitor_interruption(tts_instance, stop_event):
     """
     Monitorizează intrările vocale la intervale scurte în timpul redării TTS.
-    Dacă se detectează cuvinte ca "nora", "stop", "exit" sau "quit",
-    se setează stop_event și se întrerupe redarea.
+    Dacă se detectează cuvinte ca "nora", "stop", "exit" sau "quit", se setează stop_event
+    și se întrerupe redarea.
     """
     rec = sr.Recognizer()
     while not stop_event.is_set():
@@ -259,11 +259,11 @@ def monitor_interruption(tts_instance, stop_event):
                     print("Interruption detected:", text)
                     stop_event.set()
                     if tts_instance.current_process is not None:
-                        tts_instance.current_process.terminate()
+                        tts_instance.current_process.kill()
                     break
         except Exception:
             pass
-        time.sleep(0.1)
+        time.sleep(0.05)
 
 
 ### Funcția principală
