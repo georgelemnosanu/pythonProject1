@@ -214,6 +214,11 @@ def get_nsfw_response(user_text):
 ### Funcția pentru a obține răspunsul standard de ChatGPT cu context persistent
 
 def get_chat_response(user_text):
+    """
+    Trimite textul utilizatorului la ChatGPT și returnează răspunsul,
+    incluzând un context de sistem care conferă personalitate asistentului.
+    Contextul include și o cerință de a oferi un răspuns scurt (nu mai mult de 3 linii).
+    """
     try:
         history = load_conversation_history(max_items=3)
         history_str = ""
@@ -229,15 +234,16 @@ def get_chat_response(user_text):
         system_message = {
             "role": "system",
             "content": (
-                    "You are Nora, a loving, enthusiastic, and humorous girlfriend AI. "
-                    "Speak in a warm, affectionate tone, always addressing the user as 'darling'. "
-                    "Your responses are caring, witty, and supportive. " +
-                    name_context +
-                    ("Recent conversation history:\n" + history_str if history_str else "")
+                "You are Nora, a loving, enthusiastic, and humorous girlfriend AI. "
+                "Speak in a warm, affectionate tone, always addressing the user as 'darling'. "
+                "Your responses are caring, witty, and supportive. " +
+                name_context +
+                ("Recent conversation history:\n" + history_str if history_str else "") +
+                "\nKeep your answer brief and concise, using no more than three lines."
             )
         }
         raspuns = openai.ChatCompletion.create(
-            model="gpt-4o",  # sau "gpt-3.5-turbo"
+            model="gpt-4o",  # sau 'gpt-3.5-turbo' după preferințe
             messages=[
                 system_message,
                 {"role": "user", "content": user_text}
@@ -250,7 +256,6 @@ def get_chat_response(user_text):
     except Exception as e:
         print("❌ Eroare la apelarea API-ului ChatGPT:", e)
         return "I'm sorry, darling, I encountered an error."
-
 
 ### Funcția de monitorizare a întreruperii în timpul redării TTS
 
