@@ -13,6 +13,7 @@ from sense_hat import SenseHat
 sys.stderr = open(os.devnull, 'w')
 
 
+
 # === Config OpenAI ===
 openai.api_key = os.environ.get("OPENAI_API_KEY")
 # Setează calea către credențialele tale Google Cloud TTS
