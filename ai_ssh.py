@@ -130,7 +130,7 @@ class CloudTextToSpeech:
 
         afiseaza_emoji("vorbire")
         try:
-            process = subprocess.Popen(["mpg123", "-a", "plughw:2,0", filename])
+            process = subprocess.Popen(["mpg123", "-a", "plughw:0,0", filename])
             self.current_process = process
             while process.poll() is None:
                 if stop_event is not None and stop_event.is_set():
