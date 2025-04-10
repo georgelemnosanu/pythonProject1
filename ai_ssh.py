@@ -11,13 +11,13 @@ import openai
 from google.cloud import texttospeech
 from sense_hat import SenseHat
 
-# Redirecționează descriptorul stderr pentru a suprima mesajele native ALSA/JACK
+# Redirecționează descriptorul stderr pentru a suprima mesajele ALSA/JACK
 devnull = os.open(os.devnull, os.O_WRONLY)
 os.dup2(devnull, 2)
 os.close(devnull)
 
 # === Config OpenAI și Google TTS ===
-openai.api_key = os.environ.get("OPENAI_API_KEY")  # Această variabilă trebuie să fie setată în mediul de sistem
+openai.api_key = os.environ.get("OPENAI_API_KEY")  # Cheia API se așteaptă să fie setată în mediul de sistem
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json"
 
 # === Sense HAT ===
@@ -26,14 +26,14 @@ sense = SenseHat()
 
 def afiseaza_emoji(tip):
     """
-    Funcție simplificată de afișare a unui "emoji" (aici afișează un mesaj în consolă)
+    Funcție simplificată pentru afișarea unui "emoji" (aici, doar un mesaj în consolă).
     """
     print(f"[Emoji: {tip}]")
 
 
 def detecteaza_stare(text):
     """
-    Detectează o stare de bază pe baza textului și returnează un indicator (string)
+    Detectează o stare de bază pe baza textului și returnează un indicator.
     """
     text = text.lower()
     if any(cuv in text for cuv in ["happy", "great", "excited"]):
@@ -52,12 +52,12 @@ class CloudTextToSpeech:
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
         self.client = texttospeech.TextToSpeechClient()
         self.system = platform.system()
-        self.current_process = None  # Pentru controlul redării audio
+        self.current_process = None  # Pentru controlul redării
 
     def vorbeste(self, text, emotie="idle", stop_event=None):
         """
-        Sintetizează textul prin Google Cloud TTS și îl redă folosind mpg123.
-        Dacă stop_event este setat în timpul redării, se întrerupe.
+        Sintetizează textul cu Google Cloud TTS și-l redă folosind mpg123.
+        Dacă stop_event este setat în timpul redării, aceasta este întreruptă.
         """
         input_text = texttospeech.SynthesisInput(text=text)
         voice = texttospeech.VoiceSelectionParams(
@@ -93,7 +93,6 @@ class CloudTextToSpeech:
         finally:
             self.current_process = None
             os.remove(filename)
-            # Semnalăm sfârșitul redării dacă nu a fost deja setat
             if stop_event is not None:
                 stop_event.set()
             afiseaza_emoji(emotie)
@@ -101,8 +100,8 @@ class CloudTextToSpeech:
 
 def wake_word_detection():
     """
-    Ascultă timp de 5 secunde pentru a detecta cuvântul de trezire ("andra" sau "hey andra").
-    Returnează True dacă se detectează.
+    Ascultă timp de 5 secunde pentru a detecta cuvântul de trezire ("nora"/"hey nora").
+    Returnează True dacă este detectat.
     """
     rec = sr.Recognizer()
     with sr.Microphone() as source:
@@ -112,7 +111,6 @@ def wake_word_detection():
             audio = rec.listen(source, timeout=5, phrase_time_limit=3)
             text = rec.recognize_google(audio, language="en-US")
             print("Am auzit:", text)
-            # Pentru a trezi asistentul, nu e nevoie să spui "assistant", ci "andra" (sau "hey andra")
             if "nora" in text.lower():
                 print("Wake word detectat!")
                 return True
@@ -123,8 +121,8 @@ def wake_word_detection():
 
 def listen_user_input(timeout=10, phrase_limit=5):
     """
-    Ascultă inputul utilizatorului cu un timeout și phrase_time_limit pentru a detecta tăcerea.
-    Dacă nu se recepționează nimic, returnează șirul gol.
+    Ascultă inputul vocal al utilizatorului cu timeout și phrase_time_limit
+    pentru detectarea tăcerii. Dacă nu se înțelege, returnează șirul gol.
     """
     rec = sr.Recognizer()
     with sr.Microphone() as source:
@@ -142,16 +140,16 @@ def listen_user_input(timeout=10, phrase_limit=5):
 
 def get_chat_response(user_text):
     """
-    Trimite textul utilizatorului la ChatGPT și returnează răspunsul.
-    Include un context de sistem care conferă personalitate (AI-ul este numit "Andra").
+    Trimite textul utilizatorului la ChatGPT și returnează răspunsul,
+    includând un context de sistem care îl conferă personalitate asistentului.
     """
     try:
         system_message = {
             "role": "system",
             "content": (
-                "You are Nora, a loving, enthusiastic, and humorous girlfriend AI. "
-                "Speak in a warm, affectionate tone, always calling the user 'darling'. "
-                "Be witty, supportive, and make the user smile with playful comments."
+                "You are Andra, a loving, enthusiastic, and humorous girlfriend AI. "
+                "Speak in a warm, affectionate tone, always addressing the user as 'darling'. "
+                "Your responses are caring, witty, and supportive, and you love to make the user smile."
             )
         }
         raspuns = openai.ChatCompletion.create(
@@ -162,7 +160,7 @@ def get_chat_response(user_text):
             ]
         )
         mesaj_ai = raspuns.choices[0].message.content
-        print("🤖 Nora:", mesaj_ai)
+        print("🤖 Andra:", mesaj_ai)
         return mesaj_ai
     except Exception as e:
         print("❌ Eroare la apelarea API-ului ChatGPT:", e)
@@ -171,8 +169,9 @@ def get_chat_response(user_text):
 
 def monitor_interruption(tts_instance, stop_event):
     """
-    Monitorizează inputul vocal (la intervale scurte) în timpul redării TTS.
-    Dacă se detectează cuvinte precum "andra", "stop", "exit" sau "quit", se setează stop_event.
+    Monitorizează intrările vocale la intervale scurte în timpul redării TTS.
+    Dacă se detectează "nora", "stop", "exit" sau "quit", se setează stop_event
+    și se întrerupe redarea.
     """
     rec = sr.Recognizer()
     while not stop_event.is_set():
@@ -194,44 +193,37 @@ def monitor_interruption(tts_instance, stop_event):
 
 def main_loop():
     tts = CloudTextToSpeech("/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json")
-    awake = False  # Stare de conversație activă
-    last_interaction = time.time()
+    awake = False
 
-    # Inițial, așteptăm wake word (ex: "Andra" sau "hey Andra")
+    # Inițial așteptăm wake word pentru a activa modul conversațional
     while True:
         if not awake:
             if not wake_word_detection():
                 continue
             else:
                 awake = True
-                print("Nora is now awake, darling!")
-                last_interaction = time.time()
+                print("Andra is now awake, darling!")
 
-        # Atunci când sistemul este în modul activ, așteptăm input vocal
         user_input = listen_user_input(timeout=10, phrase_limit=5)
-
-        # Dacă nu se primește input timp de 10 secunde sau se spune "that's all", considerăm conversația terminată
-        if user_input.strip() == "" or user_input.lower() in ["that's all", "bye"]:
+        if user_input.lower() in ["stop", "exit", "quit", "that's all", "bye"]:
             tts.vorbeste("Alright darling, talk to you later!", "idle")
             awake = False
+            print("Returning to sleep mode...")
             continue
 
-        # Resetăm ultimul moment de interacțiune
-        last_interaction = time.time()
+        if user_input.strip() == "":
+            tts.vorbeste("Can you repeat please, darling?", "confuz")
+            continue
 
         mesaj_ai = get_chat_response(user_input)
         emotie = detecteaza_stare(mesaj_ai)
         stop_event = threading.Event()
+
         monitor_thread = threading.Thread(target=monitor_interruption, args=(tts, stop_event))
         monitor_thread.start()
 
         tts.vorbeste(mesaj_ai, emotie, stop_event=stop_event)
         monitor_thread.join()
-
-        # Dacă nu se primește nicio intervenție de la utilizator timp de 10 secunde, ieșim din modul activ
-        if time.time() - last_interaction > 10:
-            tts.vorbeste("Alright darling, talk to you later!", "idle")
-            awake = False
 
 
 if __name__ == "__main__":
