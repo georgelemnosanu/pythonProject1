@@ -18,7 +18,7 @@ os.dup2(devnull, 2)
 os.close(devnull)
 
 # === Config OpenAI și Google TTS ===
-openai.api_key = os.environ.get("OPENAI_API_KEY")  # Asigură-te că variabila de mediu OPENAI_API_KEY este setată
+openai.api_key = os.environ.get("OPENAI_API_KEY")  # Asigură-te că OPENAI_API_KEY este setată
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json"
 
 # === Sense HAT ===
@@ -28,9 +28,114 @@ sense = SenseHat()
 CONVERSATION_HISTORY_FILE = "conversation_history.json"
 USER_DATA_FILE = "user_data.json"
 
+#############################################
+# Modele LED pentru Sense HAT (8x8)
+#############################################
+
+emoji_patterns = {
+    "happy": [
+        "B B Y Y Y Y B B",
+        "B Y Y Y Y Y Y B",
+        "Y Y R Y Y R Y Y",
+        "Y Y R Y Y R Y Y",
+        "Y Y Y Y Y Y Y Y",
+        "Y Y R Y Y R Y Y",
+        "B Y Y R R Y Y B",
+        "B B Y Y Y Y B B"
+    ],
+    "sad": [
+        "B B Y Y Y Y B B",
+        "B Y Y Y Y Y Y B",
+        "Y Y R Y Y R Y Y",
+        "Y Y R Y Y R Y Y",
+        "Y Y Y Y Y Y Y Y",
+        "Y Y Y R R Y Y Y",
+        "B Y R Y Y R Y B",
+        "B B Y Y Y Y B B"
+    ],
+    "confuz": [
+        "B B Y Y Y Y B B",
+        "B Y Y Y Y Y Y B",
+        "Y Y R R Y R R Y",
+        "Y Y Y Y Y Y Y Y",
+        "Y Y Y Y Y Y Y Y",
+        "Y Y R R R R R Y",
+        "B Y Y Y Y Y Y B",
+        "B B Y Y Y Y B B"
+    ],
+    "idle": [
+        "U B B U U B B U",
+        "U B U B B U B U",
+        "B U R B B R U B",
+        "B U B B B B U B",
+        "B B U R R U B B",
+        "U U U U U U U U",
+        "U B B U U B B U",
+        "U B B B B B B U"
+    ],
+    "ganditor": [
+        "B B B B B B B B",
+        "B B R R B B B B",
+        "B R B B R B B B",
+        "B B B B R B B B",
+        "B B B R B B B B",
+        "B B R B B B B B",
+        "B B B B B B B B",
+        "B B R B B B B B"
+    ],
+    "love": [
+        "B R R B B R R B",
+        "R R R R R R R R",
+        "R R R R R R R R",
+        "R R R R R R R R",
+        "R R R R R R R R",
+        "B R R R R R R B",
+        "B B R R R R B B",
+        "B B B R R B B B"
+    ],
+    "go": [
+        "B B B B B B B B",
+        "P P P P B P P P",
+        "P B B B B P B P",
+        "P B B B B P B P",
+        "P B P P B P B P",
+        "P B B P B P B P",
+        "P P P P B P P P",
+        "B B B B B B B B"
+    ]
+}
+
+# Maparea culorilor
+color_map = {
+    'B': (0, 0, 0),  # black
+    'Y': (255, 255, 0),  # yellow
+    'R': (255, 0, 0),  # red
+    'W': (255, 255, 255),  # white
+    'U': (0, 0, 255),  # blue
+    'O': (255, 165, 0),  # orange
+    'P': (128, 0, 128),  # purple
+    'K': (255, 192, 203),  # pink
+    'P': (128, 0, 128)  # pentru "go", folosim P pentru purple (poți schimba dacă dorești)
+}
+
+
+def afiseaza_led(pattern_name):
+    """Afișează pe matricea LED a Sense HAT modelul specificat."""
+    if pattern_name not in emoji_patterns:
+        print(f"No LED pattern for {pattern_name}.")
+        return
+    rows = emoji_patterns[pattern_name]
+    pixels = []
+    for row in rows:
+        # Fiecare linie are 8 coduri separate prin spații
+        letters = row.split()
+        for letter in letters:
+            pixels.append(color_map.get(letter, (0, 0, 0)))
+    sense.set_pixels(pixels)
+
 
 #############################################
-# Funcții pentru memorie (conversație & user data)
+# Funcții pentru conversație și memorie
 #############################################
 
 def load_conversation_history(max_items=3):
@@ -81,19 +186,23 @@ def update_user_data(name):
 
 
 #############################################
-# Funcții pentru afișarea "emoji"-urilor & detectarea stării
+# Funcții pentru afișarea "emoji" & stări
 #############################################
 
 def afiseaza_emoji(tip):
+    # De asemenea, pentru debugging, putem seta și un LED pe Sense HAT,
+    # dacă avem un pattern definit cu același nume.
     print(f"[Emoji: {tip}]")
+    if tip.lower() in emoji_patterns:
+        afiseaza_led(tip.lower())
 
 
 def detecteaza_stare(text):
     text = text.lower()
     if any(cuv in text for cuv in ["happy", "great", "excited"]):
-        return "fericit"
+        return "happy"
     if any(cuv in text for cuv in ["sad", "sorry", "unfortunately"]):
-        return "trist"
+        return "sad"
     if any(cuv in text for cuv in ["think", "maybe", "possibly"]):
         return "ganditor"
     if any(cuv in text for cuv in ["confused", "don't know", "unclear"]):
@@ -173,11 +282,11 @@ class CloudTextToSpeech:
 
 
 #############################################
-# Funcții pentru wake word și ascultarea inputului
+# Funcții pentru wake word și ascultarea inputului (cu lock)
 #############################################
 
-# Pentru a evita conflicte, folosim un lock global pentru microfon
-microphone_lock = threading.Lock()
+with microphone_lock:  # re-declarăm lock-ul global
+    pass  # lock-ul este deja declarat anterior
 
 
 def wake_word_detection():
@@ -205,6 +314,8 @@ def listen_user_input(timeout=15, phrase_limit=7):
         rec = sr.Recognizer()
         with sr.Microphone() as source:
             print("What would you like to say, darling?")
+            # Înainte de a asculta, afișăm pattern-ul "go" pe LED
+            afiseaza_led("go")
             rec.adjust_for_ambient_noise(source)
             try:
                 audio = rec.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
@@ -303,13 +414,28 @@ def main_loop():
 
         user_input = listen_user_input(timeout=15, phrase_limit=7)
 
-        # Dacă inputul se referă la senzori, citește senzorii
+        # Comandă pentru afișarea unui pattern LED dacă utilizatorul spune "show me ..."
+        if "show me" in user_input.lower():
+            # Extrage tipul pattern-ului; de exemplu, "show me heart" => "heart"
+            parts = user_input.lower().split("show me", 1)
+            if len(parts) == 2:
+                pattern = parts[1].strip()
+                if pattern in emoji_patterns:
+                    print(f"Displaying {pattern} pattern on LED.")
+                    afiseaza_led(pattern)
+                    # Așteaptă câteva secunde pentru a vizualiza
+                    time.sleep(3)
+                    # Revenim la pattern-ul idle
+                    afiseaza_led("idle")
+                continue
+
+        # Citește senzorii dacă inputul conține cuvinte cheie legate de senzor
         if any(keyword in user_input.lower() for keyword in ["sensor", "temperature", "humidity", "pressure"]):
             sensor_text = read_sensors()
             tts.vorbeste(sensor_text, "idle")
             continue
 
-        # Actualizează numele dacă se spune "my name is ..."
+        # Actualizează numele dacă utilizatorul spune "my name is ..."
         if user_input.lower().startswith("my name is"):
             parts = user_input.split("my name is", 1)
             if len(parts) == 2:
@@ -336,22 +462,6 @@ def main_loop():
         monitor_thread.start()
         tts.vorbeste(mesaj_ai, emotie, stop_event=stop_event)
         monitor_thread.join()
-
-
-def read_sensors():
-    try:
-        temperature = round(sense.get_temperature(), 1)
-        humidity = round(sense.get_humidity(), 1)
-        pressure = round(sense.get_pressure(), 1)
-        sensor_text = (
-            f"The current temperature is {temperature}°C, humidity is {humidity}%, "
-            f"and pressure is {pressure} millibars."
-        )
-        print("📊 Sensors:", sensor_text)
-        return sensor_text
-    except Exception as e:
-        print("Error reading sensors:", e)
-        return "I'm sorry, darling, I'm having trouble reading the sensors right now."
 
 
 if __name__ == "__main__":
