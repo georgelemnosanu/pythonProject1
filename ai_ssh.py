@@ -9,22 +9,22 @@ import subprocess
 import json
 import cv2
 import numpy as np
+import face_recognition
 import speech_recognition as sr
 import openai
 from google.cloud import texttospeech
 from sense_hat import SenseHat
 
-# Global lock și flag pentru microfon
+# Global lock pentru microfon
 microphone_lock = threading.Lock()
-microphone_busy = False
 
-# Redirecționează stderr pentru a suprima mesajele native (ALSA/JACK)
+# Redirecționează stderr (pentru a suprima mesajele native ALSA/JACK)
 devnull = os.open(os.devnull, os.O_WRONLY)
 os.dup2(devnull, 2)
 os.close(devnull)
 
 # === Config OpenAI și Google TTS ===
-openai.api_key = os.environ.get("OPENAI_API_KEY")
+openai.api_key = os.environ.get("OPENAI_API_KEY")  # Cheia API trebuie setată în mediul de sistem
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json"
 
 # === Sense HAT ===
@@ -33,7 +33,8 @@ sense = SenseHat()
 # Fișiere pentru memorie persistentă
 CONVERSATION_HISTORY_FILE = "conversation_history.json"
 USER_DATA_FILE = "user_data.json"
-KNOWN_FACE_FILE = "known_face.jpg"
+# Fișierul pentru codificarea feței cunoscute
+KNOWN_FACE_ENCODING_FILE = "known_face.npy"
 
 
 #############################################
@@ -109,73 +110,33 @@ def detecteaza_stare(text):
 
 
 #############################################
-# Funcții pentru Webcam
+# Funcții pentru webcam folosind face_recognition
 #############################################
 
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-
-
-def get_face_from_frame(frame):
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
-    if len(faces) == 0:
-        return None
-    (x, y, w, h) = faces[0]
-    return gray[y:y + h, x:x + w]
-
-
-def compare_faces(known_face, new_face, threshold=10000):
-    try:
-        new_face_resized = cv2.resize(new_face, (known_face.shape[1], known_face.shape[0]))
-        diff = cv2.absdiff(known_face, new_face_resized)
-        score = np.sum(diff)
-        return score < threshold
-    except Exception as e:
-        print("Error comparing faces:", e)
-        return False
-
-
-#############################################
-# Funcția auxiliară pentru identificarea noii fețe
-#############################################
-
-def ask_for_new_face(tts_instance):
-    global microphone_busy
-    # Setăm flag-ul ca microfon ocupat pentru identificare
-    microphone_busy = True
-    with microphone_lock:
-        tts_instance.vorbeste("I see someone new! Who are you?", "confuz")
-        time.sleep(1)  # Așteaptă ca TTS-ul să se termine
-        rec = sr.Recognizer()
+def load_known_face_encoding():
+    if os.path.exists(KNOWN_FACE_ENCODING_FILE):
         try:
-            with sr.Microphone() as source:
-                rec.adjust_for_ambient_noise(source)
-                print("Listening for new face identification...")
-                audio = rec.listen(source, timeout=10, phrase_time_limit=5)
-                response = rec.recognize_google(audio, language="en-US")
-                print("New face response:", response)
-                microphone_busy = False
-                return response
+            return np.load(KNOWN_FACE_ENCODING_FILE)
         except Exception as e:
-            print("Error in ask_for_new_face:", e)
-            microphone_busy = False
-            return None
+            print("Error loading known face encoding:", e)
+    return None
 
 
-#############################################
-# Funcția de monitorizare a webcam-ului
-#############################################
+def save_known_face_encoding(face_encoding):
+    try:
+        np.save(KNOWN_FACE_ENCODING_FILE, face_encoding)
+    except Exception as e:
+        print("Error saving known face encoding:", e)
+
 
 def monitor_webcam(tts_instance):
     cap = cv2.VideoCapture(0)
-    known_face = None
-    if os.path.exists(KNOWN_FACE_FILE):
-        known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
+    known_face_encoding = load_known_face_encoding()
     face_detected = False
-    last_seen = None
-    absent_threshold = 3  # secunde de absență necesare pentru a considera că ai dispărut
+    last_seen = 0
+    absent_threshold = 3  # secunde de absență pentru a declanșa salutul
     processing_new_face = False
-    new_face_counter = 0  # numără ciclurile consecutive în care fața nu este recunoscută
+    new_face_counter = 0
 
     while True:
         ret, frame = cap.read()
@@ -184,29 +145,32 @@ def monitor_webcam(tts_instance):
             time.sleep(1)
             continue
 
-        face = get_face_from_frame(frame)
+        # Convertim cadrul din BGR (OpenCV) în RGB (face_recognition necesită RGB)
+        rgb_frame = frame[:, :, ::-1]
+        face_locations = face_recognition.face_locations(rgb_frame)
+        face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
+
         current_time = time.time()
 
-        if face is not None:
+        if len(face_encodings) > 0:
+            current_encoding = face_encodings[0]
             print("Face captured.")
-            last_seen = current_time  # Actualizează timpul curent de detectare
-            if known_face is not None:
-                if compare_faces(known_face, face, threshold=15000):
-                    # Fața este recunoscută
-                    new_face_counter = 0  # Resetează contorul
-                    if not face_detected:
-                        # Dacă fața a dispărut și apoi reapare după absent_threshold secunde
-                        if last_seen and (current_time - last_seen) >= absent_threshold:
-                            user_data = load_user_data()
-                            name = user_data.get("name", "darling")
-                            print("Welcome back, " + name + "!")
-                            tts_instance.vorbeste("Welcome back, " + name + "!", "idle")
+            last_seen = current_time
+            if known_face_encoding is not None:
+                # Comparația se face cu toleranța implicită sau specificată, de exemplu, 0.6
+                matches = face_recognition.compare_faces([known_face_encoding], current_encoding, tolerance=0.6)
+                if matches[0]:
+                    new_face_counter = 0
+                    if not face_detected and (current_time - last_seen) >= absent_threshold:
+                        user_data = load_user_data()
+                        name = user_data.get("name", "darling")
+                        print("Welcome back, " + name + "!")
+                        tts_instance.vorbeste("Welcome back, " + name + "!", "idle")
                     face_detected = True
                     processing_new_face = False
                 else:
-                    # Fața detectată nu se potrivește cu cea cunoscută
                     new_face_counter += 1
-                    print(f"New face counter: {new_face_counter}")
+                    print("New face counter: " + str(new_face_counter))
                     if new_face_counter >= 2 and not processing_new_face:
                         processing_new_face = True
                         print("I see someone new! Who are you?")
@@ -216,33 +180,53 @@ def monitor_webcam(tts_instance):
                             if len(parts) == 2:
                                 new_name = parts[1].strip().split()[0]
                                 update_user_data(new_name)
-                                cv2.imwrite(KNOWN_FACE_FILE, face)
-                                known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
+                                save_known_face_encoding(current_encoding)
+                                known_face_encoding = current_encoding
                                 print("Nice to meet you, " + new_name + "!")
                                 tts_instance.vorbeste("Nice to meet you, " + new_name + "!", "fericit")
                         else:
                             print("No valid identification received.")
                         face_detected = False
-                        time.sleep(3)  # Pauză pentru evitarea repetării imediate
+                        time.sleep(3)
                         processing_new_face = False
                         new_face_counter = 0
             else:
-                # Nu avem o față cunoscută; dacă există nume în user_data, salvăm fața
+                # Dacă nu avem o față cunoscută, și dacă user_data conține un nume, salvăm codificarea
                 user_data = load_user_data()
                 if "name" in user_data:
-                    cv2.imwrite(KNOWN_FACE_FILE, face)
-                    known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
-                    print(f"Saved your face as {user_data['name']}")
+                    save_known_face_encoding(current_encoding)
+                    known_face_encoding = current_encoding
+                    print("Saved your face as " + user_data["name"])
                     face_detected = True
                     processing_new_face = False
                     last_seen = current_time
         else:
             print("No face detected.")
-            if face_detected:
-                last_seen = current_time
             face_detected = False
         time.sleep(1)
 
+
+#############################################
+# Funcția auxiliară pentru a obține răspunsul vocal în identificare (ask_for_new_face)
+#############################################
+
+def ask_for_new_face(tts_instance):
+    global microphone_lock
+    with microphone_lock:
+        tts_instance.vorbeste("I see someone new! Who are you?", "confuz")
+        time.sleep(1)  # Așteaptă finalizarea TTS-ului
+        rec = sr.Recognizer()
+        try:
+            with sr.Microphone() as source:
+                rec.adjust_for_ambient_noise(source)
+                print("Listening for new face identification...")
+                audio = rec.listen(source, timeout=10, phrase_time_limit=5)
+                response = rec.recognize_google(audio, language="en-US")
+                print("New face response:", response)
+                return response
+        except Exception as e:
+            print("Error in ask_for_new_face:", e)
+            return None
 
 
 #############################################
@@ -297,7 +281,7 @@ class CloudTextToSpeech:
 
 
 #############################################
-# Funcții de wake word și ascultarea inputului
+# Funcții de wake word și ascultarea inputului (folosind lock)
 #############################################
 
 def wake_word_detection():
@@ -365,7 +349,7 @@ def get_chat_response(user_text):
             )
         }
         raspuns = openai.ChatCompletion.create(
-            model="gpt-4o",  # or "gpt-3.5-turbo"
+            model="gpt-4o",
             messages=[
                 system_message,
                 {"role": "user", "content": user_text}
@@ -427,7 +411,7 @@ def main_loop():
 
         user_input = listen_user_input(timeout=15, phrase_limit=7)
 
-        # Actualizează numele dacă se spune "my name is ..."
+        # Actualizează numele dacă utilizatorul spune "my name is ..."
         if user_input.lower().startswith("my name is"):
             parts = user_input.split("my name is", 1)
             if len(parts) == 2:
