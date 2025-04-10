@@ -173,7 +173,7 @@ def monitor_webcam(tts_instance):
         known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
     face_detected = False
     last_seen = None
-    threshold = 3  # secunde de absență necesare
+    absent_threshold = 3  # secunde de absență pentru a considera că fața a dispărut
     processing_new_face = False
 
     while True:
@@ -188,20 +188,24 @@ def monitor_webcam(tts_instance):
 
         if face is not None:
             print("Face captured.")
-            last_seen = current_time  # actualizează timpul de detecție
+            last_seen = current_time  # Actualizează timpul curent
             if known_face is not None:
-                if compare_faces(known_face, face):
-                    if not face_detected and last_seen and (current_time - last_seen) >= threshold:
-                        # Dacă fața (cunoscută) reapare după absență
-                        user_data = load_user_data()
-                        name = user_data.get("name", "darling")
-                        print("Welcome back, " + name + "!")
-                        tts_instance.vorbeste("Welcome back, " + name + "!", "idle")
+                # Ajustăm pragul pentru a permite variații mici
+                if compare_faces(known_face, face, threshold=15000):
+                    # Este recunoscută fața cunoscută
+                    if not face_detected:
+                        # Dacă a dispărut pentru cel puțin absent_threshold secunde, salută
+                        if last_seen and (current_time - last_seen) >= absent_threshold:
+                            user_data = load_user_data()
+                            name = user_data.get("name", "darling")
+                            print("Welcome back, " + name + "!")
+                            tts_instance.vorbeste("Welcome back, " + name + "!", "idle")
                     face_detected = True
                     processing_new_face = False
                 else:
-                    # Dacă se detectează o față diferită
-                    if not processing_new_face and not microphone_busy:
+                    # Dacă fața nu corespunde cu cea cunoscută și nu suntem deja în procesul de identificare,
+                    # atunci inițiază secvența de identificare.
+                    if not processing_new_face:
                         processing_new_face = True
                         print("I see someone new! Who are you?")
                         response = ask_for_new_face(tts_instance)
@@ -210,6 +214,7 @@ def monitor_webcam(tts_instance):
                             if len(parts) == 2:
                                 new_name = parts[1].strip().split()[0]
                                 update_user_data(new_name)
+                                # Salvează noua față ca fiind cea cunoscută
                                 cv2.imwrite(KNOWN_FACE_FILE, face)
                                 known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
                                 print("Nice to meet you, " + new_name + "!")
@@ -217,10 +222,11 @@ def monitor_webcam(tts_instance):
                         else:
                             print("No valid identification received.")
                         face_detected = False
-                        time.sleep(3)  # evită repetiția imediată
+                        # Pauză pentru a evita repetiția imediată
+                        time.sleep(3)
                         processing_new_face = False
             else:
-                # Dacă nu avem o față cunoscută și user_data conține un nume, salvăm fața
+                # Dacă nu există known_face și dacă avem nume în user_data, salvăm fața actuală
                 user_data = load_user_data()
                 if "name" in user_data:
                     cv2.imwrite(KNOWN_FACE_FILE, face)
@@ -231,6 +237,9 @@ def monitor_webcam(tts_instance):
                     last_seen = current_time
         else:
             print("No face detected.")
+            # Dacă nu se detectează fața, actualizează timpul de "last_seen" doar dacă a fost prezentă anterior
+            if face_detected:
+                last_seen = current_time
             face_detected = False
         time.sleep(1)
 
