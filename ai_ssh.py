@@ -13,7 +13,7 @@ from sense_hat import SenseHat
 sys.stderr = open(os.devnull, 'w')
 
 # === Config OpenAI ===
-openai.api_key = "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"
+openai.api_key = "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"
 
 # Setează calea către credențialele tale Google Cloud TTS
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json"
