@@ -88,12 +88,9 @@ def listen_user_input():
 
 
 def get_chat_response(user_text):
-    """
-    Trimite textul utilizatorului la ChatGPT și returnează răspunsul.
-    """
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-4o",  # Dacă nu este disponibil, poți folosi "gpt-3.5-turbo"
+            model="gpt-4o",  # sau "gpt-3.5-turbo", în funcție de disponibilitate
             messages=[{"role": "user", "content": user_text}]
         )
         message = response.choices[0].message.content
@@ -102,6 +99,7 @@ def get_chat_response(user_text):
     except Exception as e:
         print("Eroare la apelarea API-ului ChatGPT:", e)
         return "I'm sorry, I encountered an error."
+
 
 
 def main():
