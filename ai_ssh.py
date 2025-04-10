@@ -1,4 +1,7 @@
 import os
+devnull = os.open(os.devnull, os.O_WRONLY)
+os.dup2(devnull, 2)
+os.close(devnull)
 import sys
 import uuid
 import tempfile
@@ -8,12 +11,7 @@ import speech_recognition as sr
 import openai
 from google.cloud import texttospeech
 from sense_hat import SenseHat
-
-# Suprimă avertismentele ALSA/JACK (dacă apar la nivelul stderr)
 sys.stderr = open(os.devnull, 'w')
-
-
-
 # === Config OpenAI ===
 openai.api_key = os.environ.get("OPENAI_API_KEY")
 # Setează calea către credențialele tale Google Cloud TTS
