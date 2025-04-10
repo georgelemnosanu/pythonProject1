@@ -156,6 +156,57 @@ def monitor_webcam(tts_instance):
     known_face = None
     if os.path.exists(KNOWN_FACE_FILE):
         known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
+    face_detected = False
+    last_seen = None
+    threshold = 3  # Pragul: 3 secunde fără față pentru a considera că ai dispărut
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("Could not read frame from webcam.")
+            time.sleep(1)
+            continue
+        face = get_face_from_frame(frame)
+        current_time = time.time()
+
+        if face is not None:
+            print("Face captured.")
+            if known_face is not None:
+                if compare_faces(known_face, face):
+                    # Dacă fața este detectată și era absentă (peste pragul de timp)
+                    if not face_detected:
+                        if last_seen is not None and (current_time - last_seen) >= threshold:
+                            print("Welcome back, darling!")
+                            tts_instance.vorbeste("Welcome back, darling!", "idle")
+                    face_detected = True
+                    last_seen = current_time
+                else:
+                    print("I see someone new! Who are you?")
+                    tts_instance.vorbeste("I see someone new! Who are you?", "confuz")
+                    face_detected = False
+                    last_seen = current_time
+            else:
+                # Dacă nu avem o față cunoscută și user_data conține numele, salvăm fața
+                user_data = load_user_data()
+                if "name" in user_data:
+                    cv2.imwrite(KNOWN_FACE_FILE, face)
+                    known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
+                    print(f"Saved your face as {user_data['name']}")
+                    face_detected = True
+                    last_seen = current_time
+        else:
+            print("No face detected.")
+            if face_detected:
+                # Dacă nu se detectează fața, actualizează timpul de "ultima vedere" dacă nu e setat
+                if last_seen is None:
+                    last_seen = current_time
+            face_detected = False
+
+        time.sleep(1)
+    cap = cv2.VideoCapture(0)
+    known_face = None
+    if os.path.exists(KNOWN_FACE_FILE):
+        known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
     face_present = False  # Starea curentă: fața este detectată
     last_seen = time.time()  # Timpul ultimei detecții
     greeted = False  # Flag pentru a evita repetarea salutului
