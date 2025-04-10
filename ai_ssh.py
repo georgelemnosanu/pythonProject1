@@ -154,11 +154,17 @@ def ask_for_joke(tts_instance):
 def monitor_webcam(tts_instance):
     cap = cv2.VideoCapture(0)
     known_face = None
+    user_data = load_user_data()
+
+    # Încarcă fața cunoscută, dacă există
     if os.path.exists(KNOWN_FACE_FILE):
         known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
-    face_detected = False
-    last_seen = None
-    threshold = 3  # Pragul: 3 secunde fără față pentru a considera că ai dispărut
+
+    # Variabile de stare
+    face_present = False  # Indică dacă fața a fost detectată în ciclul anterior
+    greeted = False  # Pentru a nu saluta repetitiv
+    last_seen = None  # Timpul ultimei detectări (în secunde, epoch)
+    threshold = 3  # Pragul: 3 secunde de absență necesare pentru a declanșa salutul
 
     while True:
         ret, frame = cap.read()
@@ -166,6 +172,7 @@ def monitor_webcam(tts_instance):
             print("Could not read frame from webcam.")
             time.sleep(1)
             continue
+
         face = get_face_from_frame(frame)
         current_time = time.time()
 
@@ -173,85 +180,48 @@ def monitor_webcam(tts_instance):
             print("Face captured.")
             if known_face is not None:
                 if compare_faces(known_face, face):
-                    # Dacă fața este detectată și era absentă (peste pragul de timp)
-                    if not face_detected:
-                        if last_seen is not None and (current_time - last_seen) >= threshold:
-                            print("Welcome back, darling!")
-                            tts_instance.vorbeste("Welcome back, darling!", "idle")
-                    face_detected = True
-                    last_seen = current_time
-                else:
-                    print("I see someone new! Who are you?")
-                    tts_instance.vorbeste("I see someone new! Who are you?", "confuz")
-                    face_detected = False
-                    last_seen = current_time
-            else:
-                # Dacă nu avem o față cunoscută și user_data conține numele, salvăm fața
-                user_data = load_user_data()
-                if "name" in user_data:
-                    cv2.imwrite(KNOWN_FACE_FILE, face)
-                    known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
-                    print(f"Saved your face as {user_data['name']}")
-                    face_detected = True
-                    last_seen = current_time
-        else:
-            print("No face detected.")
-            if face_detected:
-                # Dacă nu se detectează fața, actualizează timpul de "ultima vedere" dacă nu e setat
-                if last_seen is None:
-                    last_seen = current_time
-            face_detected = False
-
-        time.sleep(1)
-    cap = cv2.VideoCapture(0)
-    known_face = None
-    if os.path.exists(KNOWN_FACE_FILE):
-        known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
-    face_present = False  # Starea curentă: fața este detectată
-    last_seen = time.time()  # Timpul ultimei detecții
-    greeted = False  # Flag pentru a evita repetarea salutului
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("Could not read frame from webcam.")
-            continue
-        face = get_face_from_frame(frame)
-        if face is not None:
-            print("Face captured.")
-            last_seen = time.time()  # Actualizează momentul de detecție
-            if known_face is not None:
-                if compare_faces(known_face, face):
+                    # Fața este recunoscută ca fiind cea cunoscută.
                     if not face_present:
-                        # Dacă fața era absentă și acum e detectată, salută
-                        print("Detected known face after absence.")
-                        tts_instance.vorbeste("Welcome back, darling!", "idle")
-                        # De asemenea, poți adăuga aici o întrebare (de ex.: "Do you want to hear a joke?")
-                        # ask_for_joke(tts_instance)  --> Dacă dorești să fie interactiv
-                        greeted = True
+                        # Dacă anterior nu era detectată (sau era absentă) și au trecut cel puțin 'threshold' secunde
+                        if last_seen is not None and (current_time - last_seen) >= threshold:
+                            if not greeted:
+                                # Preia numele din user_data; dacă nu există, folosește "darling"
+                                name = user_data.get("name", "darling")
+                                print("Welcome back, " + name + "!")
+                                tts_instance.vorbeste("Welcome back, " + name + "!", "idle")
+                                greeted = True
                     face_present = True
+                    last_seen = current_time
                 else:
-                    if face_present:
-                        print("Detected a new face! Who are you?")
-                        tts_instance.vorbeste("I see someone new! Who are you?", "confuz")
+                    # Fața detectată nu se potrivește cu cea cunoscută (persoană nouă)
+                    if not face_present:
+                        if last_seen is not None and (current_time - last_seen) >= threshold:
+                            if not greeted:
+                                print("I see someone new! Who are you?")
+                                tts_instance.vorbeste("I see someone new! Who are you?", "confuz")
+                                # Poți adăuga logica pentru actualizarea numelui aici, cu o interacțiune suplimentară.
+                                greeted = True
                     face_present = False
-                    greeted = False
+                    last_seen = current_time
             else:
-                # Dacă nu avem o față cunoscută și avem numele în user_data, salvăm noua față
-                user_data = load_user_data()
+                # Dacă nu avem o față cunoscută încă, dar user_data conține nume, salvează fața
                 if "name" in user_data:
                     cv2.imwrite(KNOWN_FACE_FILE, face)
                     known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
                     print(f"Saved your face as {user_data['name']}")
                     face_present = True
                     greeted = True
+                    last_seen = current_time
         else:
-            # Nu s-a detectat nicio față
+            # Nicio față detectată
             if face_present:
                 print("Face lost.")
+                last_seen = current_time
             else:
                 print("No face detected.")
             face_present = False
             greeted = False
+
         time.sleep(1)
 
 
