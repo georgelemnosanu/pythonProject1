@@ -7,6 +7,8 @@ import time
 import threading
 import subprocess
 import json
+import cv2
+import numpy as np
 import speech_recognition as sr
 import openai
 from google.cloud import texttospeech
@@ -27,9 +29,10 @@ sense = SenseHat()
 # Fișiere pentru memorie persistentă
 CONVERSATION_HISTORY_FILE = "conversation_history.json"
 USER_DATA_FILE = "user_data.json"
+KNOWN_FACE_FILE = "known_face.jpg"
 
 
-### Funcții de memorie pentru conversație și datele utilizatorului
+### Funcții de memorie pentru conversație și pentru datele utilizatorului
 
 def load_conversation_history(max_items=3):
     if os.path.exists(CONVERSATION_HISTORY_FILE):
@@ -81,7 +84,6 @@ def update_user_data(name):
 ### Funcții pentru afișarea emoji-urilor și detectarea stării
 
 def afiseaza_emoji(tip):
-    # Afișează un mesaj simbolic pentru "emoji"
     print(f"[Emoji: {tip}]")
 
 
@@ -98,7 +100,71 @@ def detecteaza_stare(text):
     return "idle"
 
 
-### Clasa pentru Google Cloud TTS
+### Funcții pentru webcam
+
+# Încarcă classifier-ul Haar Cascade pentru detecția feței
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+
+
+def get_face_from_frame(frame):
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+    if len(faces) == 0:
+        return None
+    (x, y, w, h) = faces[0]
+    return gray[y:y + h, x:x + w]
+
+
+def compare_faces(known_face, new_face, threshold=10000):
+    try:
+        new_face_resized = cv2.resize(new_face, (known_face.shape[1], known_face.shape[0]))
+        diff = cv2.absdiff(known_face, new_face_resized)
+        score = np.sum(diff)
+        return score < threshold
+    except Exception as e:
+        print("Error comparing faces:", e)
+        return False
+
+
+# Funcția actualizată pentru monitorizarea webcam-ului
+def monitor_webcam():
+    cap = cv2.VideoCapture(0)
+    known_face = None
+    if os.path.exists(KNOWN_FACE_FILE):
+        known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
+    face_present = False
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            continue
+        face = get_face_from_frame(frame)
+        if face is not None:
+            if known_face is not None:
+                if compare_faces(known_face, face):
+                    # Dacă fața este recunoscută ca fiind cea cunoscută, dar anterior era absent,
+                    # salută "Welcome back, darling!"
+                    if not face_present:
+                        print("Welcome back, darling!")
+                    face_present = True
+                else:
+                    # Dacă fața diferă de cea cunoscută, apelează mesajul pentru o față nouă.
+                    if face_present:
+                        print("I see someone new! Who are you?")
+                    face_present = False
+            else:
+                # Dacă nu avem încă o față cunoscută și user_data conține un nume, salvează fața.
+                user_data = load_user_data()
+                if "name" in user_data:
+                    cv2.imwrite(KNOWN_FACE_FILE, face)
+                    known_face = cv2.imread(KNOWN_FACE_FILE, cv2.IMREAD_GRAYSCALE)
+                    print(f"Saved your face as {user_data['name']}")
+                    face_present = True
+        else:
+            face_present = False
+        time.sleep(1)
+
+
+### Clasa pentru Google Cloud TTS (rămâne neschimbată față de versiunea anterioară)
 
 class CloudTextToSpeech:
     def __init__(self, key_path):
@@ -159,7 +225,6 @@ def wake_word_detection():
             text = rec.recognize_google(audio, language="en-US")
             print("Am auzit:", text)
             if "nora" in text.lower():
-                # Dacă se rostește exact "hey nora" sau "nora", oferim un răspuns scurt de confirmare.
                 if text.lower().strip() in ["hey nora", "nora"]:
                     print("Wake confirmation: Yes, darling!")
                 print("Wake word detectat!")
@@ -184,7 +249,7 @@ def listen_user_input(timeout=15, phrase_limit=7):
             return ""
 
 
-### Funcția pentru a obține răspunsul standard de la ChatGPT cu context persistent
+### Funcția pentru a obține răspunsul de la ChatGPT
 
 def get_chat_response(user_text):
     try:
@@ -204,14 +269,14 @@ def get_chat_response(user_text):
             "content": (
                     "You are Nora, a loving, enthusiastic, and humorous girlfriend AI. "
                     "Speak in a warm, affectionate tone, always addressing the user as 'darling'. "
-                    "Your responses should be caring, witty, and supportive, and you should vary your language so as not to repeat the same phrases. " +
+                    "Your responses are caring, witty, and supportive, and you vary your language so as not to be repetitive. " +
                     name_context +
                     ("Recent conversation history:\n" + history_str if history_str else "") +
                     "\nKeep your answer brief and concise (no more than three lines) and do not include emojis."
             )
         }
         raspuns = openai.ChatCompletion.create(
-            model="gpt-4o",  # sau "gpt-3.5-turbo"
+            model="gpt-4o",
             messages=[
                 system_message,
                 {"role": "user", "content": user_text}
@@ -253,6 +318,10 @@ def main_loop():
     tts = CloudTextToSpeech("/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json")
     awake = False
 
+    # Pornește thread-ul pentru monitorizarea webcam-ului
+    webcam_thread = threading.Thread(target=monitor_webcam, daemon=True)
+    webcam_thread.start()
+
     while True:
         if not awake:
             if not wake_word_detection():
@@ -264,7 +333,6 @@ def main_loop():
 
         user_input = listen_user_input(timeout=15, phrase_limit=7)
 
-        # Actualizează numele dacă utilizatorul spune "my name is ..."
         if user_input.lower().startswith("my name is"):
             parts = user_input.split("my name is", 1)
             if len(parts) == 2:
