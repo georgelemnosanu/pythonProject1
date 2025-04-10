@@ -106,14 +106,14 @@ def wake_word_detection():
     """
     rec = sr.Recognizer()
     with sr.Microphone() as source:
-        print("Aștept wake word ('andra' / 'hey andra')...")
+        print("Aștept wake word ('nora' / 'hey nora')...")
         rec.adjust_for_ambient_noise(source)
         try:
             audio = rec.listen(source, timeout=5, phrase_time_limit=3)
             text = rec.recognize_google(audio, language="en-US")
             print("Am auzit:", text)
             # Pentru a trezi asistentul, nu e nevoie să spui "assistant", ci "andra" (sau "hey andra")
-            if "andra" in text.lower():
+            if "nora" in text.lower():
                 print("Wake word detectat!")
                 return True
         except Exception:
@@ -149,7 +149,7 @@ def get_chat_response(user_text):
         system_message = {
             "role": "system",
             "content": (
-                "You are Andra, a loving, enthusiastic, and humorous girlfriend AI. "
+                "You are Nora, a loving, enthusiastic, and humorous girlfriend AI. "
                 "Speak in a warm, affectionate tone, always calling the user 'darling'. "
                 "Be witty, supportive, and make the user smile with playful comments."
             )
@@ -162,7 +162,7 @@ def get_chat_response(user_text):
             ]
         )
         mesaj_ai = raspuns.choices[0].message.content
-        print("🤖 Andra:", mesaj_ai)
+        print("🤖 Nora:", mesaj_ai)
         return mesaj_ai
     except Exception as e:
         print("❌ Eroare la apelarea API-ului ChatGPT:", e)
@@ -181,7 +181,7 @@ def monitor_interruption(tts_instance, stop_event):
                 rec.adjust_for_ambient_noise(source)
                 audio = rec.listen(source, timeout=0.8, phrase_time_limit=1)
                 text = rec.recognize_google(audio, language="en-US")
-                if any(word in text.lower() for word in ["andra", "stop", "exit", "quit"]):
+                if any(word in text.lower() for word in ["nora", "stop", "exit", "quit"]):
                     print("Interruption detected:", text)
                     stop_event.set()
                     if tts_instance.current_process is not None:
@@ -204,7 +204,7 @@ def main_loop():
                 continue
             else:
                 awake = True
-                print("Andra is now awake, darling!")
+                print("Nora is now awake, darling!")
                 last_interaction = time.time()
 
         # Atunci când sistemul este în modul activ, așteptăm input vocal
