@@ -7,6 +7,8 @@ import time
 import threading
 import subprocess
 import json
+import cv2
+import numpy as np
 import speech_recognition as sr
 import openai
 from google.cloud import texttospeech
@@ -188,21 +190,27 @@ def update_user_data(name):
 #############################################
 
 def afiseaza_emoji(tip):
+    # La apelul TTS, se afișează LED în funcție de starea dorită:
+    # pentru "love" afișează modelul "love", pentru "happy" modelul "happy", altfel folosește pattern-ul cu același nume dacă există
     print(f"[Emoji: {tip}]")
-    # Dacă există un pattern LED definit cu același nume, îl afișează
-    if tip.lower() in emoji_patterns:
-        afiseaza_led(tip.lower())
+    pattern = tip.lower()
+    if pattern in emoji_patterns:
+        afiseaza_led(pattern)
 
 
 def detecteaza_stare(text):
     text = text.lower()
-    if any(cuv in text for cuv in ["happy", "great", "excited"]):
+    # Dacă se găsește cuvântul love sau heart, returnează "love"
+    if any(word in text for word in ["love", "heart", "affection"]):
+        return "love"
+    # Dacă se găsește cuvântul happy, great sau excited, returnează "happy"
+    if any(word in text for word in ["happy", "great", "excited"]):
         return "happy"
-    if any(cuv in text for cuv in ["sad", "sorry", "unfortunately"]):
+    if any(word in text for word in ["sad", "sorry", "unfortunately"]):
         return "sad"
-    if any(cuv in text for cuv in ["think", "maybe", "possibly"]):
+    if any(word in text for word in ["think", "maybe", "possibly"]):
         return "ganditor"
-    if any(cuv in text for cuv in ["confused", "don't know", "unclear"]):
+    if any(word in text for word in ["confused", "don't know", "unclear"]):
         return "confuz"
     return "idle"
 
@@ -259,9 +267,9 @@ class CloudTextToSpeech:
         with open(filename, "wb") as out:
             out.write(response.audio_content)
 
-        afiseaza_emoji("vorbire")
+        afiseaza_emoji("idle")  # Folosește 'idle' ca stare implicită după vorbire
         try:
-            # Modificat pentru card 2 (Headphones)
+            # Folosește cardul 2 (Headphones) conform listei tale
             process = subprocess.Popen(["mpg123", "-a", "plughw:2,0", filename])
             self.current_process = process
             while process.poll() is None:
@@ -303,7 +311,7 @@ def wake_word_detection():
 
 
 def listen_user_input(timeout=15, phrase_limit=7):
-    # Înainte de a asculta, indică pe LED că este timpul să vorbești
+    # Înainte de a asculta, afișează pe LED modelul "go"
     afiseaza_led("go")
     rec = sr.Recognizer()
     with sr.Microphone() as source:
@@ -335,20 +343,21 @@ def get_chat_response(user_text):
         user_data = load_user_data()
         name_context = ""
         if "name" in user_data:
-            name_context = f"Remember, your name is {user_data['name']}. "
+            # Modificăm promptul pentru a sublinia că asistentul trebuie să-și reamintească numele
+            name_context = f"Remember, the user's name is {user_data['name']}. Always include their name in your responses when relevant. "
         system_message = {
             "role": "system",
             "content": (
-                    "You are Nora, a loving, enthusiastic, and humorous girlfriend AI. "
-                    "Speak in a warm, affectionate tone, always addressing the user as 'darling'. "
-                    "Your responses are caring, witty, and supportive, and vary your language to avoid repetition. " +
+                    "You are Nora, a loving, enthusiastic, and humorous girlfriend AI who never forgets the user's name. "
+                    "Speak in a warm, affectionate tone and always address the user as 'darling'. "
+                    "Your responses are caring, witty, and supportive, and you vary your language to avoid repetition. " +
                     name_context +
                     ("Recent conversation history:\n" + history_str if history_str else "") +
                     "\nKeep your answer brief and concise (no more than three lines) and do not include emojis."
             )
         }
         raspuns = openai.ChatCompletion.create(
-            model="gpt-4o",  # or "gpt-3.5-turbo"
+            model="gpt-4o",  # sau "gpt-3.5-turbo"
             messages=[
                 system_message,
                 {"role": "user", "content": user_text}
@@ -423,7 +432,7 @@ def main_loop():
             tts.vorbeste(sensor_text, "idle")
             continue
 
-        # Actualizează numele dacă se spune "my name is ..."
+        # Actualizează numele dacă utilizatorul spune "my name is ..."
         if user_input.lower().startswith("my name is"):
             parts = user_input.split("my name is", 1)
             if len(parts) == 2:
