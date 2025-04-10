@@ -18,7 +18,7 @@ os.dup2(devnull, 2)
 os.close(devnull)
 
 # === Config OpenAI și Google TTS ===
-openai.api_key = os.environ.get("OPENAI_API_KEY")  # Cheia API trebuie să fie setată în mediul de sistem
+openai.api_key = os.environ.get("OPENAI_API_KEY")  # Asigură-te că variabila de mediu OPENAI_API_KEY este setată
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json"
 
 # === Sense HAT ===
@@ -81,7 +81,7 @@ def update_user_data(name):
 
 
 #############################################
-# Funcții pentru afișarea "emoji"-urilor și detectarea stării
+# Funcții pentru afișarea "emoji"-urilor & detectarea stării
 #############################################
 
 def afiseaza_emoji(tip):
@@ -176,38 +176,44 @@ class CloudTextToSpeech:
 # Funcții pentru wake word și ascultarea inputului
 #############################################
 
+# Pentru a evita conflicte, folosim un lock global pentru microfon
+microphone_lock = threading.Lock()
+
+
 def wake_word_detection():
-    rec = sr.Recognizer()
-    with sr.Microphone() as source:
-        print("Aștept wake word ('nora' / 'hey nora')...")
-        rec.adjust_for_ambient_noise(source)
-        try:
-            audio = rec.listen(source, timeout=5, phrase_time_limit=3)
-            text = rec.recognize_google(audio, language="en-US")
-            print("Am auzit:", text)
-            if "nora" in text.lower():
-                if text.lower().strip() in ["hey nora", "nora"]:
-                    print("Wake confirmation: Yes, darling!")
-                print("Wake word detectat!")
-                return True
-        except Exception:
-            pass
+    with microphone_lock:
+        rec = sr.Recognizer()
+        with sr.Microphone() as source:
+            print("Aștept wake word ('nora' / 'hey nora')...")
+            rec.adjust_for_ambient_noise(source)
+            try:
+                audio = rec.listen(source, timeout=5, phrase_time_limit=3)
+                text = rec.recognize_google(audio, language="en-US")
+                print("Am auzit:", text)
+                if "nora" in text.lower():
+                    if text.lower().strip() in ["hey nora", "nora"]:
+                        print("Wake confirmation: Yes, darling!")
+                    print("Wake word detectat!")
+                    return True
+            except Exception:
+                pass
     return False
 
 
 def listen_user_input(timeout=15, phrase_limit=7):
-    rec = sr.Recognizer()
-    with sr.Microphone() as source:
-        print("What would you like to say, darling?")
-        rec.adjust_for_ambient_noise(source)
-        try:
-            audio = rec.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
-            user_text = rec.recognize_google(audio, language="en-US")
-            print("Tu ai spus:", user_text)
-            return user_text
-        except Exception as e:
-            print("I'm sorry, darling, can you repeat please?")
-            return ""
+    with microphone_lock:
+        rec = sr.Recognizer()
+        with sr.Microphone() as source:
+            print("What would you like to say, darling?")
+            rec.adjust_for_ambient_noise(source)
+            try:
+                audio = rec.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
+                user_text = rec.recognize_google(audio, language="en-US")
+                print("Tu ai spus:", user_text)
+                return user_text
+            except Exception as e:
+                print("I'm sorry, darling, can you repeat please?")
+                return ""
 
 
 #############################################
@@ -259,9 +265,9 @@ def get_chat_response(user_text):
 #############################################
 
 def monitor_interruption(tts_instance, stop_event):
-    rec = sr.Recognizer()
-    while not stop_event.is_set():
-        with microphone_lock:
+    with microphone_lock:
+        rec = sr.Recognizer()
+        while not stop_event.is_set():
             try:
                 with sr.Microphone() as source:
                     rec.adjust_for_ambient_noise(source)
@@ -275,7 +281,7 @@ def monitor_interruption(tts_instance, stop_event):
                         break
             except Exception:
                 pass
-        time.sleep(0.05)
+            time.sleep(0.05)
 
 
 #############################################
@@ -297,13 +303,13 @@ def main_loop():
 
         user_input = listen_user_input(timeout=15, phrase_limit=7)
 
-        # Dacă utilizatorul spune "read sensors", citește senzorii de pe Sense HAT
-        if "read sensors" in user_input.lower() or "sensor" in user_input.lower():
+        # Dacă inputul se referă la senzori, citește senzorii
+        if any(keyword in user_input.lower() for keyword in ["sensor", "temperature", "humidity", "pressure"]):
             sensor_text = read_sensors()
             tts.vorbeste(sensor_text, "idle")
             continue
 
-        # Actualizează numele dacă utilizatorul spune "my name is ..."
+        # Actualizează numele dacă se spune "my name is ..."
         if user_input.lower().startswith("my name is"):
             parts = user_input.split("my name is", 1)
             if len(parts) == 2:
