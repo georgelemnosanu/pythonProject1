@@ -11,14 +11,13 @@ import openai
 from google.cloud import texttospeech
 from sense_hat import SenseHat
 
-# Redirecționează stderr la nivel de sistem pentru a suprime mesajele ALSA/JACK
+# Redirecționează descriptorul stderr la nivel de sistem pentru a suprime mesajele ALSA/JACK
 devnull = os.open(os.devnull, os.O_WRONLY)
 os.dup2(devnull, 2)
 os.close(devnull)
 
 # === Config OpenAI și Google TTS ===
-openai.api_key = os.environ.get("OPENAI_API_KEY")  # Setează cheia API în mediul tău
-# Setează calea către fișierul de credențiale Google
+openai.api_key = os.environ.get("OPENAI_API_KEY")  # Asigură-te că variabila de mediu este setată
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json"
 
 # === Sense HAT ===
@@ -50,9 +49,9 @@ class CloudTextToSpeech:
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
         self.client = texttospeech.TextToSpeechClient()
         self.system = platform.system()
-        self.current_process = None  # Pentru posibilă întrerupere
+        self.current_process = None  # Pentru controlul redării
 
-    def vorbeste(self, text, emotie="idle"):
+    def vorbeste(self, text, emotie="idle", stop_event=None):
         input_text = texttospeech.SynthesisInput(text=text)
         voice = texttospeech.VoiceSelectionParams(
             language_code="en-US",
@@ -73,12 +72,18 @@ class CloudTextToSpeech:
         with open(filename, "wb") as out:
             out.write(response.audio_content)
 
-        afiseaza_emoji("vorbire")
+        afiseaza_emoji("vorbire")  # Se afișează emoji pentru vorbire
+
         try:
-            # Folosim subprocess pentru a putea controla procesul de redare
+            # Pornim redarea în modul controlabil
             process = subprocess.Popen(["mpg123", "-a", "plughw:2,0", filename])
             self.current_process = process
-            process.wait()  # Așteptăm finalizarea redării
+            # Bucla de așteptare a redării, într-o manieră care permite întreruperea
+            while process.poll() is None:
+                if stop_event is not None and stop_event.is_set():
+                    process.terminate()
+                    break
+                time.sleep(0.2)
         except Exception as e:
             print("Eroare la redare audio:", e)
         finally:
@@ -88,7 +93,7 @@ class CloudTextToSpeech:
 
 def wake_word_detection():
     """
-    Ascultă câteva secunde pentru a detecta cuvântul de trezire "assistant".
+    Ascultă 5 secunde pentru a detecta cuvântul de trezire "assistant".
     Returnează True dacă este detectat.
     """
     rec = sr.Recognizer()
@@ -102,22 +107,19 @@ def wake_word_detection():
             if "assistant" in text.lower():
                 print("Cuvântul de trezire detectat!")
                 return True
-        except Exception as e:
-            # Poți ignora erorile de timp
+        except Exception:
             pass
     return False
 
 def listen_user_input():
     """
-    Ascultă inputul utilizatorului și se oprește când nu se mai detectează vorbire.
-    Folosim phrase_time_limit pentru a detecta tăcerea.
+    Ascultă inputul utilizatorului cu detectarea liniștii (phrase_time_limit).
     """
     rec = sr.Recognizer()
     with sr.Microphone() as source:
         print("Ascult, te rog, ce dorești să spui...")
         rec.adjust_for_ambient_noise(source)
         try:
-            # Dacă nu se mai vorbește timp de 5 secunde, se oprește ascultarea
             audio = rec.listen(source, timeout=10, phrase_time_limit=5)
             user_text = rec.recognize_google(audio, language="en-US")
             print("Tu ai spus:", user_text)
@@ -131,9 +133,8 @@ def get_chat_response(user_text):
     Trimite textul utilizatorului la ChatGPT și returnează răspunsul.
     """
     try:
-        # Folosim noua interfață: nu modificați această parte!
         raspuns = openai.ChatCompletion.create(
-            model="gpt-4o",  # Sau "gpt-3.5-turbo" dacă este necesar
+            model="gpt-4o",  # Alternativ, "gpt-3.5-turbo"
             messages=[{"role": "user", "content": user_text}]
         )
         mesaj_ai = raspuns.choices[0].message.content
@@ -143,46 +144,59 @@ def get_chat_response(user_text):
         print("❌ Eroare la apelarea API-ului ChatGPT:", e)
         return "I'm sorry, I encountered an error."
 
-def interrupt_check(tts_instance, check_interval=1):
+def monitor_interruption(tts_instance, stop_event):
     """
-    Monitorizează, la fiecare 'check_interval' secunde, dacă se detectează un nou wake word.
-    Dacă da, întrerupe redarea TTS (dacă aceasta este în curs).
+    Monitorizează intrările de la microfon pentru cuvinte de întrerupere ("assistant" sau "stop").
+    Dacă se detectează, setează stop_event pentru a întrerupe redarea TTS.
+    Această funcție rulează într-un thread separat.
     """
-    while tts_instance.current_process is not None:
-        if wake_word_detection():
-            print("Nou wake word detectat! Oprirea redării TTS...")
-            try:
-                tts_instance.current_process.terminate()
-            except Exception as e:
-                print("Eroare la întreruperea TTS:", e)
-            break
-        time.sleep(check_interval)
+    rec = sr.Recognizer()
+    while not stop_event.is_set():
+        try:
+            with sr.Microphone() as source:
+                rec.adjust_for_ambient_noise(source)
+                # Ascultăm cu un timeout scurt și phrase_time_limit scurt
+                audio = rec.listen(source, timeout=2, phrase_time_limit=2)
+                text = rec.recognize_google(audio, language="en-US")
+                # Dacă se detectează cuvinte de întrerupere
+                if any(word in text.lower() for word in ["assistant", "stop", "quit", "exit"]):
+                    print("Interrupere detectată:", text)
+                    stop_event.set()
+                    # Dacă există un proces TTS curent, îl terminăm
+                    if tts_instance.current_process is not None:
+                        tts_instance.current_process.terminate()
+                    break
+        except Exception:
+            # Ignorăm erorile și repetăm
+            pass
+        time.sleep(0.5)
 
 def main_loop():
     tts = CloudTextToSpeech("/root/asistent_ai/maximal-mason-456321-g9-1853723212a3.json")
     while True:
-        # Așteaptă cuvântul de trezire
+        # Detectăm wake word
         if not wake_word_detection():
-            continue  # Dacă nu se detectează, revenim la începutul buclei
+            continue  # Dacă nu este detectat, revenim la început
 
-        # După ce se detectează wake word, ascultăm inputul utilizatorului
         user_input = listen_user_input()
         if user_input.lower() in ["stop", "exit", "quit"]:
-            print("🔴 Oprit.")
+            print("Programul se închide.")
             break
         if user_input.strip() == "":
             continue
 
-        # Obține răspunsul ChatGPT
         mesaj_ai = get_chat_response(user_input)
+        emotie = detecteaza_stare(mesaj_ai)
 
-        # Pornim TTS într-un thread separat
-        tts_thread = threading.Thread(target=tts.vorbeste, args=(mesaj_ai, detecteaza_stare(mesaj_ai)))
-        tts_thread.start()
+        # Creăm un eveniment pentru întrerupere și pornim thread-ul de monitorizare
+        stop_event = threading.Event()
+        monitor_thread = threading.Thread(target=monitor_interruption, args=(tts, stop_event))
+        monitor_thread.start()
 
-        # În timp ce TTS-ul redă, monitorizăm dacă se detectează noul wake word (pentru întrerupere)
-        interrupt_check(tts)
-        tts_thread.join()  # Așteptăm să se termine redarea
+        # Pornim redarea TTS
+        tts.vorbeste(mesaj_ai, emotie, stop_event=stop_event)
+
+        monitor_thread.join()  # Așteptăm încheierea monitorizării înainte de a reporni
 
 if __name__ == "__main__":
     main_loop()
